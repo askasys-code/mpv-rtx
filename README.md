@@ -6,6 +6,8 @@
 
 An ultra-refined, videophile-grade media environment engineered for Direct3D 11 and NVIDIA RTX architectures. Built on `vo=gpu-next`, this suite delivers zero-copy hardware acceleration, frame-perfect pacing for high-refresh displays, tensor-core AI upscaling, studio-grade multichannel audio monitoring, and an exclusive vector-rendered glassmorphism user interface.
 
+<img width="3840" height="2160" alt="AEECD0FD-D5E6-4B16-8FF6-71531462C82B" src="https://github.com/user-attachments/assets/70b2388a-6c73-41de-8415-17278fe22314" />
+
 ---
 
 ## 💎 The NVIDIA Dark Glass Aesthetic
@@ -17,8 +19,6 @@ Unlike standard media players with generic flat controls, this suite features a 
 * **RivaTuner Telemetry Cyan (`#00E5FF`)**: High-contrast, fatigue-free readouts for clocks, codecs, timestamps, and demuxer cache buffers.
 * **OLED Black Optimization**: Borderless pure black letterboxing (`#000000`) designed to turn off self-lit OLED pixels entirely.
 * **Dynamic DPI Vector Scaling**: Every font glyph, vector border, button hitbox, and layout coordinate scales responsively across 1080p, 1440p, 4K UHD, and ultra-wide displays.
-
-<img width="3840" height="2160" alt="AEECD0FD-D5E6-4B16-8FF6-71531462C82B" src="https://github.com/user-attachments/assets/70b2388a-6c73-41de-8415-17278fe22314" />
 
 ---
 
