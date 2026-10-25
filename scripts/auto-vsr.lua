@@ -1,5 +1,3 @@
---- START OF FILE mpv/scripts/auto-vsr.lua ---
-
 -- =========================================================================
 -- NVIDIA RTX Video Super Resolution (VSR) Auto-Scaler for MPV
 -- Dynamic Viewport-Targeting & Aspect-Ratio Preserving Engine
@@ -17,8 +15,11 @@ end
 
 -- Safely remove existing VSR filter instance and formatting helpers
 local function remove_vsr_filter()
-    if is_vsr_active() then
+    local vf_str = mp.get_property("vf") or ""
+    if vf_str:find(vsr_label, 1, true) ~= nil then
         mp.commandv("vf", "remove", vsr_label)
+    end
+    if vf_str:find(format_label, 1, true) ~= nil then
         mp.commandv("vf", "remove", format_label)
     end
 end
@@ -68,6 +69,7 @@ local function is_format_supported(pixfmt)
         ["p010"]        = true,
         ["p010le"]      = true,
         ["yuv420p10le"] = true,
+        ["d3d11"]       = true,
     }
     return valid_formats[clean_fmt] or false
 end
@@ -124,12 +126,16 @@ local function toggle_vsr(silent_rescale)
     scale = math.min(scale, 4.0)
     scale = math.floor(scale * 100 + 0.5) / 100
 
-    -- Remove any existing instance before appending
+    -- Remove any existing VSR filters before re-applying
     remove_vsr_filter()
 
-    -- 4. Validate pixel format. If it's an RGB still image, insert format conversion
-    local pixfmt = mp.get_property_native("video-params/hw-pixelformat")
-                or mp.get_property_native("video-params/pixelformat")
+    -- Clear any active GLSL shader to prevent conflicts
+    mp.set_property("glsl-shaders", "")
+
+    -- 4. Validate pixel format. If format is unsupported or software decoded, insert format filter
+    local hw_pix = mp.get_property_native("video-params/hw-pixelformat")
+    local sw_pix = mp.get_property_native("video-params/pixelformat")
+    local pixfmt = hw_pix or sw_pix
 
     if not is_format_supported(pixfmt) then
         mp.commandv("vf", "append", string.format("%s:format=nv12", format_label))

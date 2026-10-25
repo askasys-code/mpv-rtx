@@ -1,5 +1,5 @@
 -- =========================================================================
--- MPV Modern Bottom Bar & Interactive Controller (V3.2 Guaranteed Autohide)
+-- MPV Modern Bottom Bar & Interactive Controller (V3.3 Optimized Lifecycle)
 -- NVIDIA Dark Glass Aesthetic, Live Badges & Real Autohide Lifecycle
 -- Fully Standalone Engine (Zero Overlap & Zero Lingering Overlays)
 -- =========================================================================
@@ -720,11 +720,15 @@ local function show_bar()
     is_visible = true
     request_render()
 
-    -- Guaranteed Autohide Timer: Disappears after 2s of inactivity
-    if hide_timer then hide_timer:kill() end
-    if not is_dragging_seek and not is_dragging_vol and not active_menu then
+    if hide_timer then
+        hide_timer:kill()
+        hide_timer = nil
+    end
+
+    -- Start countdown only if mouse is NOT hovering over the bar, menu, or slider
+    if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
         hide_timer = mp.add_timeout(cfg.autohide_delay, function()
-            if not is_dragging_seek and not is_dragging_vol and not active_menu then
+            if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
                 hide_bar()
             end
         end)
@@ -753,20 +757,28 @@ local function on_mouse_move()
     if in_trigger_zone or is_dragging_seek or is_dragging_vol or active_menu then
         show_bar()
     elseif is_visible then
-        -- Refresh autohide countdown if moving in upper screen area
-        if not hide_timer or not hide_timer:is_enabled() then
-            hide_timer = mp.add_timeout(cfg.autohide_delay, function()
-                if not is_dragging_seek and not is_dragging_vol and not active_menu then
-                    hide_bar()
-                end
-            end)
+        -- Refresh autohide countdown if moving outside the interactive bottom zone
+        if not is_hover_bar and not is_dragging_seek and not is_dragging_vol and not active_menu then
+            if not hide_timer or not hide_timer:is_enabled() then
+                hide_timer = mp.add_timeout(cfg.autohide_delay, function()
+                    if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
+                        hide_bar()
+                    end
+                end)
+            end
         end
     end
 
     if is_hover_bar or is_dragging_seek or is_dragging_vol or active_menu then
+        if hide_timer then
+            hide_timer:kill()
+            hide_timer = nil
+        end
         enable_bar_clicks()
     else
-        disable_bar_clicks()
+        if not is_dragging_seek and not is_dragging_vol and not active_menu then
+            disable_bar_clicks()
+        end
     end
 
     -- High-Performance Scrubbing
@@ -791,7 +803,29 @@ local function on_mouse_move()
         end
     end
 
-    request_render()
+    -- Only request redraw when bar is actively showing
+    if is_visible then
+        request_render()
+    end
+end
+
+-- Mouse Leave Window Handler (Resets hover states and coordinates cleanly)
+local function on_mouse_leave()
+    mouse_x, mouse_y = -1, -1
+    is_hover_bar = false
+
+    if not is_dragging_seek and not is_dragging_vol and not active_menu then
+        disable_bar_clicks()
+        if is_visible then
+            if hide_timer then hide_timer:kill() end
+            hide_timer = mp.add_timeout(cfg.autohide_delay, function()
+                if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
+                    hide_bar()
+                end
+            end)
+            request_render()
+        end
+    end
 end
 
 -- Mouse Click Handler
@@ -800,6 +834,7 @@ local function on_mouse_press()
 
     -- 1. Check Popup Menu Item Selection
     if active_menu then
+        local clicked_item = false
         for _, item in ipairs(menu_layout.items) do
             if mouse_x >= item.x1 and mouse_x <= item.x2 and mouse_y >= item.y1 and mouse_y <= item.y2 then
                 if active_menu == "audio" then
@@ -808,14 +843,20 @@ local function on_mouse_press()
                     mp.set_property("sid", item.id)
                 end
                 active_menu = nil
+                clicked_item = true
                 show_bar()
                 return
             end
         end
 
-        if mouse_x < menu_layout.x1 or mouse_x > menu_layout.x2 or mouse_y < menu_layout.y1 or mouse_y > menu_layout.y2 then
+        -- Clicked outside menu items
+        if not clicked_item then
             active_menu = nil
             show_bar()
+            -- If click landed outside the bottom bar as well, swallow and return
+            if not (mouse_x >= bar_layout.x1 and mouse_x <= bar_layout.x2 and mouse_y >= bar_layout.y1 and mouse_y <= bar_layout.y2) then
+                return
+            end
         end
     end
 
@@ -894,6 +935,13 @@ local function on_mouse_release()
 
     if not is_hover_bar and not active_menu then
         disable_bar_clicks()
+        if is_visible and (not hide_timer or not hide_timer:is_enabled()) then
+            hide_timer = mp.add_timeout(cfg.autohide_delay, function()
+                if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
+                    hide_bar()
+                end
+            end)
+        end
     end
 end
 
@@ -960,8 +1008,9 @@ end)
 
 mp.register_event("end-file", hide_bar)
 
--- Track mouse motion across the window
+-- Track mouse motion across the window and window boundary exit
 mp.add_forced_key_binding("MOUSE_MOVE", "mbb_mouse_move", on_mouse_move)
+mp.add_forced_key_binding("MOUSE_LEAVE", "mbb_mouse_leave", on_mouse_leave)
 
 -- Direct Script Messages
 mp.register_script_message("toggle-bottom-bar", function()

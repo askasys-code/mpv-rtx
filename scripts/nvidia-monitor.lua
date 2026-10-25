@@ -216,8 +216,10 @@ end
 -- Parse raw CSV output from nvidia-smi (includes GPU Name, Clocks & Video Decoder load)
 local function parse_smi_csv(csv_line)
     if not csv_line or csv_line == "" then return end
+    -- Isolate only the first line in case of multiple GPUs or trailing newlines
+    local first_line = csv_line:match("[^\r\n]+") or ""
     local fields = {}
-    for val in csv_line:gmatch("([^,]+)") do
+    for val in first_line:gmatch("([^,]+)") do
         table.insert(fields, val:match("^%s*(.-)%s*$"))
     end
 
@@ -229,7 +231,6 @@ local function parse_smi_csv(csv_line)
         stats.pwr_lim    = fields[5]
         stats.load       = fields[6]
 
-        -- Clean and validate NVDEC decoder utilization
         local nvdec_raw  = fields[7]
         local nvdec_clean = nvdec_raw:match("(%d+)")
         stats.nvdec_load = nvdec_clean or "0"
@@ -237,7 +238,6 @@ local function parse_smi_csv(csv_line)
         stats.clk_core   = fields[10]
         stats.clk_mem    = fields[11]
 
-        -- Convert VRAM from MiB to rounded GB
         local mem_u = tonumber(fields[8])
         local mem_t = tonumber(fields[9])
         stats.vram_use = mem_u and string.format("%.2f", mem_u / 1024) or "N/A"

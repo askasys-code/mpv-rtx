@@ -49,25 +49,25 @@ local dsp_presets = {
     {
         id     = "spatial_expander",
         label  = "7.1 Spatial Audio Expander",
-        filter = "surround=chl_out=7.1",
+        filter = "lavfi=[surround=chl_out=7.1]",
         engine = "7.1 SPATIAL EXPANDER"
     },
     {
         id     = "bs2b",
         label  = "Bauer BS2B Headphone Crossfeed",
-        filter = "bs2b=profile=default",
+        filter = "lavfi=[bs2b=profile=default]",
         engine = "BS2B CROSSFEED"
     },
     {
         id     = "stereowiden",
         label  = "Stereo Soundstage Expander",
-        filter = "stereowiden",
+        filter = "lavfi=[stereowiden]",
         engine = "STEREO WIDENER"
     },
     {
         id     = "dynaudnorm",
         label  = "Dynamic Normalizer (Night Mode)",
-        filter = "dynaudnorm",
+        filter = "lavfi=[dynaudnorm]",
         engine = "DYNAUDNORM"
     }
 }
@@ -771,6 +771,7 @@ end
 -- State management
 local function set_enabled(state)
     is_enabled = state
+    mp.set_property_native("user-data/sound-monitor-active", is_enabled)
     if is_enabled then
         draw_hud()
         if not poll_timer then
