@@ -1,6 +1,7 @@
 -- =========================================================================
 -- MPV NVIDIA Dark Glass Custom Notification HUD (custom-notify.lua)
 -- Unified, Elegant OSD Toast System Matching Suite Aesthetic 1:1
+-- Features: Built-in Magnification Math, Volume & Geometry Handlers
 -- =========================================================================
 
 local mp = require("mp")
@@ -115,12 +116,11 @@ local function draw_toast()
     overlay:update()
 end
 
--- Public Script Message Dispatcher
--- Usage: script-message notify "CATEGORY" "Message text" "color_tag" "duration_in_secs"
+-- Public Notification Dispatcher
 local function show_toast(title, message, color_tag, duration)
     title = title or "NOTIFICATION"
     message = message or ""
-    duration = tonumber(duration) or 2.2
+    duration = tonumber(duration) or 2.0
 
     local color = cfg.color_green
     local icon_color = cfg.color_green
@@ -149,6 +149,51 @@ local function show_toast(title, message, color_tag, duration)
     if hide_timer then hide_timer:kill() end
     hide_timer = mp.add_timeout(duration, hide_toast)
 end
+
+-- =========================================================================
+-- Built-in Handlers (Eliminates mpv Built-in White OSD for Good)
+-- =========================================================================
+
+-- 1. Real-Time Zoom with Visual Magnification Math
+mp.register_script_message("custom-notify-zoom", function(delta)
+    local step = tonumber(delta) or 0.10
+    local z = mp.get_property_number("video-zoom", 0) + step
+    z = math.floor(z * 100 + 0.5) / 100 -- Clean 2-decimal rounding
+
+    mp.set_property_number("video-zoom", z)
+
+    local factor = math.floor((2 ^ z) * 100 + 0.5)
+    local desc, col
+    if z == 0 then
+        desc = "100% (Native View)"
+        col = "green"
+    else
+        desc = string.format("%d%% (Factor: %+.2f)", factor, z)
+        col = "cyan"
+    end
+    show_toast("ZOOM", desc, col, 1.2)
+end)
+
+-- 2. Master Geometry Reset (Zoom & Pan)
+mp.register_script_message("custom-notify-reset-geo", function()
+    mp.set_property_number("video-zoom", 0)
+    mp.set_property_number("video-pan-x", 0)
+    mp.set_property_number("video-pan-y", 0)
+    show_toast("GEOMETRY", "Zoom & Pan Reset (100% Center)", "yellow", 1.8)
+end)
+
+-- 3. Master Volume Step Handler
+mp.register_script_message("custom-notify-volume", function(delta)
+    local step = tonumber(delta) or 2
+    local vol = mp.get_property_number("volume", 100) + step
+    vol = math.max(0, math.min(100, vol))
+
+    mp.set_property_number("volume", vol)
+    if mp.get_property_bool("mute", false) then
+        mp.set_property_bool("mute", false)
+    end
+    show_toast("VOLUME", string.format("%d%%", math.floor(vol + 0.5)), "yellow", 1.2)
+end)
 
 mp.register_script_message("notify", show_toast)
 mp.observe_property("osd-dimensions", "native", function()
