@@ -1,3 +1,5 @@
+--- START OF FILE mpv/scripts/auto-vsr.lua ---
+
 -- =========================================================================
 -- NVIDIA RTX Video Super Resolution (VSR) Auto-Scaler for MPV
 -- Dynamic Viewport-Targeting & Aspect-Ratio Preserving Engine
@@ -5,6 +7,7 @@
 -- =========================================================================
 
 local vsr_label = "@vsr"
+local format_label = "@vsr_fmt"
 
 -- Inspect the active filter chain to determine if VSR is currently engaged
 local function is_vsr_active()
@@ -12,11 +15,17 @@ local function is_vsr_active()
     return vf_str:find(vsr_label, 1, true) ~= nil
 end
 
--- Safely remove existing VSR filter instance
+-- Safely remove existing VSR filter instance and formatting helpers
 local function remove_vsr_filter()
     if is_vsr_active() then
         mp.commandv("vf", "remove", vsr_label)
+        mp.commandv("vf", "remove", format_label)
     end
+end
+
+-- Helper to dispatch modern Dark Glass toasts
+local function toast(title, msg, color, duration)
+    mp.commandv("script-message", "notify", title, msg, color or "green", tostring(duration or 2))
 end
 
 -- Determine active viewport resolution (Fullscreen display vs Windowed inner video area)
@@ -65,11 +74,11 @@ end
 
 -- Main toggle and scale calculation engine
 local function toggle_vsr(silent_rescale)
-    -- Guard: Prevent running on still images or pure audio album art
+    -- Guard: Prevent running on pure audio album art
     local vtrack = mp.get_property_native("current-tracks/video")
-    if not vtrack or vtrack.image or vtrack.albumart then
+    if not vtrack or vtrack.albumart then
         if not silent_rescale then
-            mp.osd_message("NVIDIA VSR: Not applicable for static images or audio", 2)
+            toast("NVIDIA RTX VSR", "Not applicable for audio tracks", "yellow", 2)
         end
         return
     end
@@ -82,7 +91,7 @@ local function toggle_vsr(silent_rescale)
     -- 1. If VSR filter is currently active and not an auto-rescale update, turn it OFF
     if is_vsr_active() and not silent_rescale then
         remove_vsr_filter()
-        mp.osd_message(string.format("NVIDIA VSR: OFF (Native: %dx%d)", raw_w or 0, raw_h or 0), 2)
+        toast("NVIDIA RTX VSR", string.format("OFF (Native: %dx%d)", raw_w or 0, raw_h or 0), "yellow", 2)
         return
     end
 
@@ -90,23 +99,12 @@ local function toggle_vsr(silent_rescale)
     local target_w, target_h = get_target_resolution()
     if not (video_w and video_h and target_w and target_h and video_w > 0 and video_h > 0) then
         if not silent_rescale then
-            mp.osd_message("NVIDIA VSR: Video or display dimensions unavailable", 2)
+            toast("NVIDIA RTX VSR", "Display dimensions unavailable", "red", 2)
         end
         return
     end
 
-    -- 3. Validate hardware-accelerated pixel format
-    local pixfmt = mp.get_property_native("video-params/hw-pixelformat")
-                or mp.get_property_native("video-params/pixelformat")
-
-    if not is_format_supported(pixfmt) then
-        if not silent_rescale then
-            mp.osd_message(string.format("NVIDIA VSR: Unsupported format (%s)", tostring(pixfmt)), 2)
-        end
-        return
-    end
-
-    -- 4. Calculate aspect-ratio preserving isotropic scale factor
+    -- 3. Calculate aspect-ratio preserving isotropic scale factor
     local scale_x = target_w / video_w
     local scale_y = target_h / video_h
     local scale = math.min(scale_x, scale_y)
@@ -117,7 +115,7 @@ local function toggle_vsr(silent_rescale)
             remove_vsr_filter()
         end
         if not silent_rescale then
-            mp.osd_message(string.format("NVIDIA VSR: Not needed (Video: %dx%d >= Target: %dx%d)", video_w, video_h, target_w, target_h), 2.5)
+            toast("NVIDIA RTX VSR", string.format("Not needed (%dx%d >= Target)", video_w, video_h), "gray", 2)
         end
         return
     end
@@ -129,14 +127,22 @@ local function toggle_vsr(silent_rescale)
     -- Remove any existing instance before appending
     remove_vsr_filter()
 
-    -- 5. Append filter with labeled instance
+    -- 4. Validate pixel format. If it's an RGB still image, insert format conversion
+    local pixfmt = mp.get_property_native("video-params/hw-pixelformat")
+                or mp.get_property_native("video-params/pixelformat")
+
+    if not is_format_supported(pixfmt) then
+        mp.commandv("vf", "append", string.format("%s:format=nv12", format_label))
+    end
+
+    -- 5. Append VSR filter with labeled instance
     local filter_cmd = string.format("%s:d3d11vpp=scaling-mode=nvidia:scale=%.2f", vsr_label, scale)
     mp.commandv("vf", "append", filter_cmd)
 
     local out_w = math.floor((raw_w or video_w) * scale)
     local out_h = math.floor((raw_h or video_h) * scale)
-    local msg_prefix = silent_rescale and "NVIDIA RTX VSR: Rescaled" or "NVIDIA RTX VSR: Active"
-    mp.osd_message(string.format("%s (%.2fx -> %dx%d)", msg_prefix, scale, out_w, out_h), 2)
+    local status_title = silent_rescale and "NVIDIA RTX VSR (RESCALED)" or "NVIDIA RTX VSR"
+    toast(status_title, string.format("Active (%.2fx -> %dx%d)", scale, out_w, out_h), "green", 2.2)
 end
 
 -- Dynamically update scaling factor if fullscreen mode changes while VSR is active

@@ -1,10 +1,17 @@
+--- START OF FILE mpv/scripts/auto-hdr.lua ---
+
 -- =========================================================================
 -- NVIDIA RTX Video True HDR Controller for MPV
 -- Prevents double tone-mapping on native HDR and handles SDR-to-HDR cleanly
--- Fully Synchronized & Stateless Filter Controller
+-- Universal Support: Moving Videos & High-Resolution Still Images
 -- =========================================================================
 
 local hdr_label = "@truehdr"
+local fmt_label = "@truehdr_fmt"
+
+local function toast(title, msg, color, duration)
+    mp.commandv("script-message", "notify", title, msg, color or "green", tostring(duration or 2))
+end
 
 -- Inspect video filter pipeline to determine if True HDR is currently active
 local function is_hdr_active()
@@ -12,11 +19,29 @@ local function is_hdr_active()
     return vf_str:find(hdr_label, 1, true) ~= nil
 end
 
--- Safely remove existing True HDR filter instance
+-- Safely remove existing True HDR filter instance and format converter
 local function remove_hdr_filter()
-    if is_hdr_active() then
+    local vf_str = mp.get_property("vf") or ""
+    if vf_str:find(hdr_label, 1, true) ~= nil then
         mp.commandv("vf", "remove", hdr_label)
     end
+    if vf_str:find(fmt_label, 1, true) ~= nil then
+        mp.commandv("vf", "remove", fmt_label)
+    end
+end
+
+-- Check if pixel format is directly accepted by D3D11VPP True HDR
+local function is_format_supported(pixfmt)
+    if not pixfmt then return false end
+    local clean_fmt = tostring(pixfmt):lower():match("^%s*(.-)%s*$")
+    local valid_formats = {
+        ["nv12"]        = true,
+        ["yuv420p"]     = true,
+        ["p010"]        = true,
+        ["p010le"]      = true,
+        ["yuv420p10le"] = true,
+    }
+    return valid_formats[clean_fmt] or false
 end
 
 -- Inspect video metadata to determine if content is already native HDR
@@ -46,40 +71,49 @@ end
 
 -- Main toggle and hardware filter dispatcher
 local function toggle_hdr()
-    -- Guard: Prevent running on still images, pure audio, or album art
+    -- Guard: Prevent running on pure audio tracks or album art
     local vtrack = mp.get_property_native("current-tracks/video")
-    if not vtrack or vtrack.image or vtrack.albumart then
-        mp.osd_message("NVIDIA True HDR: Not applicable for static images or audio", 2)
+    if not vtrack or vtrack.albumart then
+        toast("NVIDIA TRUE HDR", "Not applicable for audio tracks", "yellow", 2)
         return
     end
 
     local video_w = mp.get_property_native("width")
     if not video_w or video_w <= 0 then
-        mp.osd_message("NVIDIA True HDR: No video stream loaded", 2)
+        toast("NVIDIA TRUE HDR", "No media stream loaded", "red", 2)
         return
     end
 
     -- 1. If True HDR is currently active, turn it OFF
     if is_hdr_active() then
         remove_hdr_filter()
-        mp.osd_message("NVIDIA True HDR: OFF", 2)
+        toast("NVIDIA TRUE HDR", "OFF (Native SDR)", "yellow", 2)
         return
     end
 
-    -- 2. Abort if the video already contains native HDR mastering
+    -- 2. Abort if the media already contains native HDR mastering
     if is_native_hdr() then
-        mp.osd_message("NVIDIA True HDR: Skipped (Content is already native HDR)", 3)
+        toast("NVIDIA TRUE HDR", "Skipped (Already Native HDR)", "cyan", 2.5)
         return
     end
 
-    -- 3. Append filter using isolated instance label
+    -- 3. Format adaptation for software-decoded RGB
+    local pixfmt = mp.get_property_native("video-params/hw-pixelformat")
+                or mp.get_property_native("video-params/pixelformat")
+
+    if not is_format_supported(pixfmt) then
+        mp.commandv("vf", "append", string.format("%s:format=nv12", fmt_label))
+    end
+
+    -- 4. Append filter using isolated instance label
     local filter_cmd = string.format("%s:d3d11vpp=nvidia-true-hdr", hdr_label)
     mp.commandv("vf", "append", filter_cmd)
 
-    mp.osd_message("NVIDIA True HDR: Active (SDR -> HDR)", 2)
+    local target_type = vtrack.image and "Image" or "Video"
+    toast("NVIDIA TRUE HDR", string.format("Active (%s SDR -> HDR)", target_type), "green", 2.2)
 end
 
--- Automatically clean filter when loading a new file to prevent carrying over to native HDR media
+-- Automatically clean filter when loading a new file
 local function on_file_loaded()
     remove_hdr_filter()
 end

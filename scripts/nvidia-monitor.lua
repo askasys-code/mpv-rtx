@@ -106,10 +106,20 @@ end
 -- Resolve active upscaler engine
 local function get_active_upscaler()
     local vf_str = mp.get_property("vf") or ""
-    if vf_str:find("@vsr") or vf_str:find("d3d11vpp") then
+    -- Disambiguate RTX VSR from True HDR (both utilize d3d11vpp)
+    if vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia") then
         return "RTX VSR (Tensor AI)", cfg.color_green
     end
-    local shaders = mp.get_property_native("glsl-shaders") or {}
+
+    -- Filter out empty string tokens (e.g. when glsl-shaders="" is set on image opening)
+    local raw_shaders = mp.get_property_native("glsl-shaders") or {}
+    local shaders = {}
+    for _, s in ipairs(raw_shaders) do
+        if type(s) == "string" and s:match("%S") then
+            table.insert(shaders, s)
+        end
+    end
+
     if #shaders > 0 then
         for _, s in ipairs(shaders) do
             if s:find("NVScaler") then return "NVIDIA NIS", cfg.color_cyan end
@@ -119,7 +129,11 @@ local function get_active_upscaler()
         end
         return "Custom GLSL", cfg.color_cyan
     end
-    return "Native (Lanczos)", cfg.color_gray
+
+    -- Dynamically reflect the active base luma scaler (e.g., Spline36 for images, Lanczos for video)
+    local base_scale = mp.get_property("scale") or "lanczos"
+    base_scale = base_scale:sub(1,1):upper() .. base_scale:sub(2):lower()
+    return string.format("Native (%s)", base_scale), cfg.color_gray
 end
 
 -- Extract real-time MPV engine metrics (Native Video FPS, Display Hz, Latency & Drops)
@@ -322,7 +336,7 @@ local function draw_hud()
     local pad_x         = math.floor(18 * scale)
     local indent_x      = math.floor(8 * scale)
 
-    -- Dynamic Height Calculation (Auto-fits with new Dynamic Range row)
+    -- Dynamic Height Calculation
     local total_rows = 0
     for _, sec in ipairs(sections) do
         total_rows = total_rows + #sec.items
@@ -422,7 +436,7 @@ local function draw_hud()
             cur_y = cur_y + row_step
         end
 
-        -- Spacing between sections (except after the last one)
+        -- Spacing between sections
         if s_idx < #sections then
             cur_y = cur_y + section_gap
         end
@@ -499,3 +513,4 @@ mp.observe_property("osd-dimensions", "native", draw_hud)
 mp.observe_property("pause", "bool", draw_hud)
 mp.observe_property("vf", "native", draw_hud)
 mp.observe_property("glsl-shaders", "native", draw_hud)
+mp.observe_property("scale", "string", draw_hud)

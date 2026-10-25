@@ -1,6 +1,7 @@
 -- =========================================================================
 -- MPV Studio Audio Suite & Hi-Fi Telemetry Controller
 -- Dynamic 7.1 Speaker Matrix, Channel Soloing, Full Hz & Spatial Audio HUD
+-- Integrated with NVIDIA Dark Glass Notification HUD (custom-notify.lua)
 -- =========================================================================
 
 local mp = require("mp")
@@ -27,6 +28,11 @@ local cfg = {
 }
 
 local overlay = mp.create_osd_overlay("ass-events")
+
+-- Dispatch Dark Glass Toast notifications via custom-notify.lua
+local function toast(title, msg, color, duration)
+    mp.commandv("script-message", "notify", title, msg, color or "green", tostring(duration or 2))
+end
 
 -- =========================================================================
 -- Curated Studio Headphone DSP Presets Suite (Default: Bypass / OFF)
@@ -259,7 +265,7 @@ local function set_channel_solo(mode_id)
     if current_solo_idx > 1 and solo_modes[current_solo_idx].id == mode_id then
         current_solo_idx = 1
         apply_audio_filters()
-        mp.osd_message("Audio Channel: All Channels (Full)", 2.5)
+        toast("AUDIO CHANNEL", "All Channels (Full)", "green", 2)
         return
     end
 
@@ -267,7 +273,7 @@ local function set_channel_solo(mode_id)
         if mode.id == mode_id then
             current_solo_idx = idx
             apply_audio_filters()
-            mp.osd_message("Audio Channel: " .. mode.label, 2.5)
+            toast("AUDIO CHANNEL", mode.label, "yellow", 2)
             return
         end
     end
@@ -277,7 +283,8 @@ local function cycle_channel_solo()
     current_solo_idx = (current_solo_idx % #solo_modes) + 1
     apply_audio_filters()
     local mode = solo_modes[current_solo_idx]
-    mp.osd_message("Audio Channel: " .. mode.label, 2.5)
+    local color = (current_solo_idx > 1) and "yellow" or "green"
+    toast("AUDIO CHANNEL", mode.label, color, 2)
 end
 
 -- Professional Zero-Clipping Bass Boost Cycler
@@ -285,14 +292,16 @@ local function cycle_bass_boost()
     current_bass_idx = (current_bass_idx % #bass_presets) + 1
     apply_audio_filters()
     local b = bass_presets[current_bass_idx]
-    mp.osd_message("Audiophile Bass Boost: " .. b.label, 2.5)
+    local color = (current_bass_idx > 1) and "yellow" or "gray"
+    toast("BASS BOOST", b.label, color, 2)
 end
 
 local function cycle_audio_dsp()
     current_dsp_idx = (current_dsp_idx % #dsp_presets) + 1
     apply_audio_filters()
     local selected = dsp_presets[current_dsp_idx]
-    mp.osd_message("Audio DSP: " .. selected.label, 2.5)
+    local color = (current_dsp_idx > 1) and "cyan" or "gray"
+    toast("AUDIO DSP", selected.label, color, 2)
 end
 
 local function reset_audio_dsp()
@@ -302,7 +311,7 @@ local function reset_audio_dsp()
     is_internal_af = true
     mp.set_property("af", "")
     is_internal_af = false
-    mp.osd_message("Audio DSP: Direct / Bit-Perfect (OFF)", 2)
+    toast("AUDIO DSP", "Direct / Bit-Perfect (OFF)", "yellow", 2)
     if draw_hud then draw_hud() end
 end
 

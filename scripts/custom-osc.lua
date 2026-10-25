@@ -135,7 +135,15 @@ local function get_active_upscaler_badge()
     if vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia") then
         return "RTX VSR", cfg.color_green
     end
-    local shaders = mp.get_property_native("glsl-shaders") or {}
+
+    local raw_shaders = mp.get_property_native("glsl-shaders") or {}
+    local shaders = {}
+    for _, s in ipairs(raw_shaders) do
+        if type(s) == "string" and s:match("%S") then
+            table.insert(shaders, s)
+        end
+    end
+
     if #shaders > 0 then
         for _, s in ipairs(shaders) do
             if s:find("NVScaler") then return "NIS", cfg.color_cyan end
@@ -145,7 +153,9 @@ local function get_active_upscaler_badge()
         end
         return "GLSL", cfg.color_cyan
     end
-    return "LANCZOS", cfg.color_gray
+
+    local base_scale = (mp.get_property("scale") or "LANCZOS"):upper()
+    return base_scale, cfg.color_gray
 end
 
 -- Find chapter name at given timestamp
@@ -934,6 +944,12 @@ mp.observe_property("osd-dimensions", "native", function() if is_visible then re
 mp.observe_property("track-list", "native", function() if is_visible then request_render() end end)
 mp.observe_property("current-tracks/audio", "native", function() if is_visible then request_render() end end)
 mp.observe_property("current-tracks/sub", "native", function() if is_visible then request_render() end end)
+
+-- Instant Reactive Badges (Zero overhead: fires ONLY on keypress)
+mp.observe_property("glsl-shaders", "native", function() if is_visible then request_render() end end)
+mp.observe_property("vf", "native", function() if is_visible then request_render() end end)
+mp.observe_property("scale", "string", function() if is_visible then request_render() end end)
+mp.observe_property("hwdec-current", "string", function() if is_visible then request_render() end end)
 
 -- Observe clip maker activity to immediately hide bar
 mp.observe_property("user-data/clip-maker-active", "bool", function(_, active)
