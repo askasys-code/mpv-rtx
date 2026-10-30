@@ -346,7 +346,7 @@ draw_bar = function()
     ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
         d_cx + d_rad + math.floor(6 * scale), info_y, cfg.font_face, title_fs, cfg.color_white, truncate_string(media_title, 42)))
 
-    -- Right Telemetry Badges (Resolution, Hardware Decode, FGS, Scaler & HDR)
+    -- Right Telemetry Badges (Resolution, Hardware Decode, FGS / Grain, Scaler & HDR)
     local res_tag, res_col = get_resolution_badge()
     local upscaler_tag, upscaler_col = get_active_upscaler_badge()
     local hdr_tag, hdr_col = get_dynamic_range_badge()
@@ -367,10 +367,16 @@ draw_bar = function()
     end
     table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", hw_col, hw_tag))
 
+    -- Dynamic AV1 FGS or Universal H.264 Grain Badge
     if is_av1 then
         local fgs_tag = is_fgs_stripped and "FGS: OFF" or "FGS: ON"
         local fgs_col = is_fgs_stripped and cfg.color_yellow or cfg.color_green
         table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", fgs_col, fgs_tag))
+    else
+        local syn_tag = mp.get_property("user-data/film-grain-tag")
+        if syn_tag and syn_tag ~= "" and syn_tag ~= "OFF" then
+            table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", cfg.color_green, syn_tag))
+        end
     end
 
     table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", upscaler_col, upscaler_tag))
