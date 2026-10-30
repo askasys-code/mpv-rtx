@@ -209,12 +209,15 @@ mp.register_script_message("custom-notify-zoom", function(delta)
     show_toast("ZOOM", desc, col, 1.2)
 end)
 
--- 3. Master Geometry Reset (Zoom & Pan)
+-- 3. Master Geometry Reset (Zoom, Pan & Border Alignment)
 mp.register_script_message("custom-notify-reset-geo", function()
     mp.set_property_number("video-zoom", 0)
     mp.set_property_number("video-pan-x", 0)
     mp.set_property_number("video-pan-y", 0)
-    show_toast("GEOMETRY", "Zoom & Pan Reset (100% Center)", "yellow", 1.8)
+    mp.set_property_number("video-align-x", 0)
+    mp.set_property_number("video-align-y", 0)
+    mp.set_property_number("panscan", 0)
+    show_toast("GEOMETRY", "Zoom, Pan & Alignment Reset (100% Center)", "yellow", 1.8)
 end)
 
 -- 4. Master Volume Step Handler

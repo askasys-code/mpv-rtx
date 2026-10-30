@@ -1374,7 +1374,7 @@ mp.register_event("file-loaded", function()
     update_dimensions()
 end)
 
-local monitor_props = { "keepaspect", "video-out-params", "video-zoom", "video-pan-x", "video-pan-y" }
+local monitor_props = { "keepaspect", "video-out-params", "video-zoom", "video-pan-x", "video-pan-y", "video-align-x", "video-align-y", "panscan" }
 for _, p in ipairs(monitor_props) do
     mp.observe_property(p, "native", function()
         dimensions_cache = nil

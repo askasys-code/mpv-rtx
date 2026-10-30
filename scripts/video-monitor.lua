@@ -1,6 +1,6 @@
 -- =========================================================================
 -- MPV Compact Video Diagnostics Suite (Container, Stream & Color Science)
--- Real-time Reactive HUD: Dynamic Upscaled Resolution & True HDR Detection
+-- Real-time Reactive HUD: Dynamic Upscaled Resolution & AV1 Film Grain
 -- =========================================================================
 
 local mp = require("mp")
@@ -275,6 +275,20 @@ local function get_diagnostics_data()
         gamma_col = cfg.color_green
     end
 
+    -- AV1 Film Grain Synthesis Detection
+    local is_av1 = clean_codec:find("AV1") ~= nil
+    local grain_str = "N/A"
+    local grain_col = cfg.color_gray
+    if is_av1 then
+        if vf_str:find("@filmgrain") or vf_str:find("film%-grain=no") then
+            grain_str = "Stripped / OFF"
+            grain_col = cfg.color_yellow
+        else
+            grain_str = "Active (FGS GPU)"
+            grain_col = cfg.color_green
+        end
+    end
+
     return {
         filename = filename,
         file_items = {
@@ -287,6 +301,7 @@ local function get_diagnostics_data()
         video_items = {
             { "Video Codec", clean_codec, cfg.color_cyan },
             { "Hardware Dec", hw_tag, hw_col },
+            { "Film Grain", grain_str, grain_col },
             { "Video Bitrate", v_bitrate_str, cfg.color_yellow },
             { "Resolution", res_str, res_col },
             { "Aspect Ratio", ar_str, cfg.color_white },

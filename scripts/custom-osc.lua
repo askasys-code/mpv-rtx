@@ -1,7 +1,7 @@
 -- =========================================================================
--- MPV Modern Bottom Bar & Interactive Controller (V3.3 Optimized Lifecycle)
--- NVIDIA Dark Glass Aesthetic, Live Badges & Real Autohide Lifecycle
--- Fully Standalone Engine (Zero Overlap & Zero Lingering Overlays)
+-- MPV Modern Bottom Bar & Interactive Controller (V3.5 Unified Dragging)
+-- NVIDIA Dark Glass Aesthetic, Live Badges & Zero-Conflict Window Dragging
+-- Dedicated Navigation: |◀ (Prev), ▶ / ❚❚ (Play), ▶| (Next), Seekbar & Volume
 -- =========================================================================
 
 local mp = require("mp")
@@ -44,7 +44,9 @@ local active_menu = nil
 local bar_layout = {
     x1 = 0, y1 = 0, x2 = 0, y2 = 0,
     sb_x1 = 0, sb_y1 = 0, sb_x2 = 0, sb_y2 = 0,
+    btn_prev = { x1 = 0, y1 = 0, x2 = 0, y2 = 0 },
     btn_play = { x1 = 0, y1 = 0, x2 = 0, y2 = 0 },
+    btn_next = { x1 = 0, y1 = 0, x2 = 0, y2 = 0 },
     btn_audio = { x1 = 0, y1 = 0, x2 = 0, y2 = 0 },
     btn_sub = { x1 = 0, y1 = 0, x2 = 0, y2 = 0 },
     btn_vol = { x1 = 0, y1 = 0, x2 = 0, y2 = 0 },
@@ -56,8 +58,8 @@ local menu_layout = {
     items = {}
 }
 
--- Forward declarations
-local draw_bar, enable_bar_clicks, disable_bar_clicks
+-- Forward declaration
+local draw_bar
 
 -- Direct & Guaranteed Overlay Removal
 local function hide_bar()
@@ -71,7 +73,6 @@ local function hide_bar()
         hide_timer:kill()
         hide_timer = nil
     end
-    disable_bar_clicks()
     overlay:remove()
 end
 
@@ -109,6 +110,28 @@ local function truncate_string(str, max_len)
     if not str then return "" end
     if #str > max_len then return str:sub(1, max_len - 3) .. "..." end
     return str
+end
+
+-- Resolve active video / image resolution badge
+local function get_resolution_badge()
+    local vtrack = mp.get_property_native("current-tracks/video")
+    if not vtrack or vtrack.albumart then return nil, nil end
+
+    local src_w = mp.get_property_number("width", 0)
+    local src_h = mp.get_property_number("height", 0)
+    if src_w <= 0 or src_h <= 0 then return nil, nil end
+
+    local vf_str = mp.get_property("vf") or ""
+    local has_vsr = vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia")
+    local vop = mp.get_property_native("video-out-params")
+    local vop_w = (vop and vop.w) and vop.w or src_w
+    local vop_h = (vop and vop.h) and vop.h or src_h
+
+    if has_vsr and vop_h > (src_h + 10) then
+        return string.format("%dx%d -> %dx%d", src_w, src_h, vop_w, vop_h), cfg.color_green
+    end
+
+    return string.format("%dx%d", src_w, src_h), cfg.color_cyan
 end
 
 -- Resolve active dynamic range state
@@ -321,9 +344,10 @@ draw_bar = function()
 
     ass:new_event()
     ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
-        d_cx + d_rad + math.floor(6 * scale), info_y, cfg.font_face, title_fs, cfg.color_white, truncate_string(media_title, 48)))
+        d_cx + d_rad + math.floor(6 * scale), info_y, cfg.font_face, title_fs, cfg.color_white, truncate_string(media_title, 42)))
 
-    -- Right Telemetry Badges
+    -- Right Telemetry Badges (Resolution, Hardware Decode, FGS, Scaler & HDR)
+    local res_tag, res_col = get_resolution_badge()
     local upscaler_tag, upscaler_col = get_active_upscaler_badge()
     local hdr_tag, hdr_col = get_dynamic_range_badge()
     local badge_fs = math.floor(10 * scale)
@@ -332,8 +356,27 @@ draw_bar = function()
     local hw_tag = (hwdec ~= "" and hwdec ~= "no") and "HW" or "SW"
     local hw_col = (hwdec ~= "" and hwdec ~= "no") and cfg.color_green or cfg.color_gray
 
-    local badge_str = string.format("{\\c&H%s&}[%s]   {\\c&H%s&}[%s]   {\\c&H%s&}[%s]", 
-        hw_col, hw_tag, upscaler_col, upscaler_tag, hdr_col, hdr_tag)
+    local vc = tostring(mp.get_property("video-codec") or mp.get_property("video-format") or ""):lower()
+    local is_av1 = vc:find("av1") ~= nil
+    local vf_str = mp.get_property("vf") or ""
+    local is_fgs_stripped = vf_str:find("@filmgrain") or vf_str:find("film%-grain=no")
+
+    local badge_parts = {}
+    if res_tag then
+        table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", res_col, res_tag))
+    end
+    table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", hw_col, hw_tag))
+
+    if is_av1 then
+        local fgs_tag = is_fgs_stripped and "FGS: OFF" or "FGS: ON"
+        local fgs_col = is_fgs_stripped and cfg.color_yellow or cfg.color_green
+        table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", fgs_col, fgs_tag))
+    end
+
+    table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", upscaler_col, upscaler_tag))
+    table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", hdr_col, hdr_tag))
+
+    local badge_str = table.concat(badge_parts, "   ")
 
     ass:new_event()
     ass:append(string.format("{\\an9\\pos(%d,%d)\\fn%s\\b1\\fs%d\\bord1\\3c&H000000&\\shad1}%s",
@@ -413,30 +456,64 @@ draw_bar = function()
 
     -- 4. Playback Controls & Status Row
     local ctrl_y = y1 + math.floor(46 * scale)
+    local ctrl_h = math.floor(22 * scale)
     local is_paused = mp.get_property_bool("pause", false)
     local play_symbol = is_paused and "▶" or "❚❚"
     local play_col = is_paused and cfg.color_yellow or cfg.color_green
 
-    -- Play/Pause Button Hitbox
-    bar_layout.btn_play.x1 = sb_x1
-    bar_layout.btn_play.y1 = ctrl_y
-    bar_layout.btn_play.x2 = sb_x1 + math.floor(25 * scale)
-    bar_layout.btn_play.y2 = ctrl_y + math.floor(20 * scale)
+    local btn_w = math.floor(22 * scale)
+    local btn_gap = math.floor(6 * scale)
+
+    -- 4a. Previous Track Button (|◀)
+    local is_hover_prev = (mouse_x >= bar_layout.btn_prev.x1 and mouse_x <= bar_layout.btn_prev.x2 and mouse_y >= bar_layout.btn_prev.y1 and mouse_y <= bar_layout.btn_prev.y2)
+    local prev_col = is_hover_prev and cfg.color_cyan or cfg.color_white
+
+    bar_layout.btn_prev.x1 = sb_x1
+    bar_layout.btn_prev.y1 = ctrl_y
+    bar_layout.btn_prev.x2 = sb_x1 + btn_w
+    bar_layout.btn_prev.y2 = ctrl_y + ctrl_h
 
     ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
-        sb_x1, ctrl_y, cfg.font_face, math.floor(13 * scale), play_col, play_symbol))
+    ass:append(string.format("{\\an5\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
+        bar_layout.btn_prev.x1 + math.floor(btn_w / 2), ctrl_y + math.floor(ctrl_h / 2), cfg.font_face, math.floor(12 * scale), prev_col, "|◀"))
 
-    -- Real-time Timestamps
+    -- 4b. Play/Pause Button Hitbox & Render
+    local is_hover_play = (mouse_x >= bar_layout.btn_play.x1 and mouse_x <= bar_layout.btn_play.x2 and mouse_y >= bar_layout.btn_play.y1 and mouse_y <= bar_layout.btn_play.y2)
+    local effective_play_col = is_hover_play and cfg.color_cyan or play_col
+
+    bar_layout.btn_play.x1 = bar_layout.btn_prev.x2 + btn_gap
+    bar_layout.btn_play.y1 = ctrl_y
+    bar_layout.btn_play.x2 = bar_layout.btn_play.x1 + btn_w
+    bar_layout.btn_play.y2 = ctrl_y + ctrl_h
+
+    ass:new_event()
+    ass:append(string.format("{\\an5\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
+        bar_layout.btn_play.x1 + math.floor(btn_w / 2), ctrl_y + math.floor(ctrl_h / 2), cfg.font_face, math.floor(13 * scale), effective_play_col, play_symbol))
+
+    -- 4c. Next Track Button (▶|)
+    local is_hover_next = (mouse_x >= bar_layout.btn_next.x1 and mouse_x <= bar_layout.btn_next.x2 and mouse_y >= bar_layout.btn_next.y1 and mouse_y <= bar_layout.btn_next.y2)
+    local next_col = is_hover_next and cfg.color_cyan or cfg.color_white
+
+    bar_layout.btn_next.x1 = bar_layout.btn_play.x2 + btn_gap
+    bar_layout.btn_next.y1 = ctrl_y
+    bar_layout.btn_next.x2 = bar_layout.btn_next.x1 + btn_w
+    bar_layout.btn_next.y2 = ctrl_y + ctrl_h
+
+    ass:new_event()
+    ass:append(string.format("{\\an5\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
+        bar_layout.btn_next.x1 + math.floor(btn_w / 2), ctrl_y + math.floor(ctrl_h / 2), cfg.font_face, math.floor(12 * scale), next_col, "▶|"))
+
+    -- 4d. Real-time Timestamps
     local display_time = is_dragging_seek and (effective_ratio * dur) or pos
     local time_str = string.format("%s / %s", format_time(display_time), format_time(dur))
     if dur > 0 then
         time_str = time_str .. string.format("  {\\c&H%s&}[-%s]{\\c&H%s&}", cfg.color_gray, format_time(dur - display_time), cfg.color_cyan)
     end
 
+    local time_x = bar_layout.btn_next.x2 + math.floor(14 * scale)
     ass:new_event()
     ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
-        sb_x1 + math.floor(30 * scale), ctrl_y + math.floor(1 * scale), cfg.font_face, math.floor(11.5 * scale), cfg.color_cyan, time_str))
+        time_x, ctrl_y + math.floor(1 * scale), cfg.font_face, math.floor(11.5 * scale), cfg.color_cyan, time_str))
 
     -- Right Controls: Clickable Volume Slider & Dynamic Track Buttons
     local vol = mp.get_property_number("volume", 100)
@@ -725,106 +802,12 @@ local function show_bar()
         hide_timer = nil
     end
 
-    -- Start countdown only if mouse is NOT hovering over the bar, menu, or slider
     if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
         hide_timer = mp.add_timeout(cfg.autohide_delay, function()
             if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
                 hide_bar()
             end
         end)
-    end
-end
-
--- Non-blocking mouse movement handler
-local function on_mouse_move()
-    local x, y = mp.get_mouse_pos()
-    mouse_x, mouse_y = x, y
-
-    local d = mp.get_property_native("osd-dimensions")
-    if not d or d.h == 0 then return end
-
-    if mp.get_property_native("user-data/clip-maker-active") then
-        hide_bar()
-        return
-    end
-
-    local in_bar = is_visible and (x >= bar_layout.x1 and x <= bar_layout.x2 and y >= bar_layout.y1 and y <= bar_layout.y2)
-    local in_menu = active_menu and (x >= menu_layout.x1 and x <= menu_layout.x2 and y >= menu_layout.y1 and y <= menu_layout.y2)
-    is_hover_bar = (in_bar or in_menu)
-
-    local in_trigger_zone = (y >= (d.h * 0.82))
-
-    if in_trigger_zone or is_dragging_seek or is_dragging_vol or active_menu then
-        show_bar()
-    elseif is_visible then
-        -- Refresh autohide countdown if moving outside the interactive bottom zone
-        if not is_hover_bar and not is_dragging_seek and not is_dragging_vol and not active_menu then
-            if not hide_timer or not hide_timer:is_enabled() then
-                hide_timer = mp.add_timeout(cfg.autohide_delay, function()
-                    if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
-                        hide_bar()
-                    end
-                end)
-            end
-        end
-    end
-
-    if is_hover_bar or is_dragging_seek or is_dragging_vol or active_menu then
-        if hide_timer then
-            hide_timer:kill()
-            hide_timer = nil
-        end
-        enable_bar_clicks()
-    else
-        if not is_dragging_seek and not is_dragging_vol and not active_menu then
-            disable_bar_clicks()
-        end
-    end
-
-    -- High-Performance Scrubbing
-    if is_dragging_seek and bar_layout.sb_x2 > bar_layout.sb_x1 then
-        drag_ratio = math.max(0.0, math.min(1.0, (x - bar_layout.sb_x1) / (bar_layout.sb_x2 - bar_layout.sb_x1)))
-        local now = mp.get_time()
-        if (now - last_seek_time >= 0.04) and (math.abs(drag_ratio - last_seek_ratio) >= 0.002) then
-            last_seek_time = now
-            last_seek_ratio = drag_ratio
-            mp.commandv("seek", drag_ratio * 100, "absolute-percent", "keyframes")
-        end
-    end
-
-    -- Volume Slider Dragging
-    if is_dragging_vol and bar_layout.vol_slider.x2 > bar_layout.vol_slider.x1 then
-        local vs_x1 = bar_layout.vol_slider.x1
-        local vs_x2 = bar_layout.vol_slider.x2
-        local v_ratio = math.max(0.0, math.min(1.0, (x - vs_x1) / (vs_x2 - vs_x1)))
-        mp.commandv("set", "volume", math.floor(v_ratio * 100 + 0.5))
-        if mp.get_property_bool("mute", false) then
-            mp.set_property_bool("mute", false)
-        end
-    end
-
-    -- Only request redraw when bar is actively showing
-    if is_visible then
-        request_render()
-    end
-end
-
--- Mouse Leave Window Handler (Resets hover states and coordinates cleanly)
-local function on_mouse_leave()
-    mouse_x, mouse_y = -1, -1
-    is_hover_bar = false
-
-    if not is_dragging_seek and not is_dragging_vol and not active_menu then
-        disable_bar_clicks()
-        if is_visible then
-            if hide_timer then hide_timer:kill() end
-            hide_timer = mp.add_timeout(cfg.autohide_delay, function()
-                if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
-                    hide_bar()
-                end
-            end)
-            request_render()
-        end
     end
 end
 
@@ -849,18 +832,24 @@ local function on_mouse_press()
             end
         end
 
-        -- Clicked outside menu items
         if not clicked_item then
             active_menu = nil
             show_bar()
-            -- If click landed outside the bottom bar as well, swallow and return
             if not (mouse_x >= bar_layout.x1 and mouse_x <= bar_layout.x2 and mouse_y >= bar_layout.y1 and mouse_y <= bar_layout.y2) then
                 return
             end
         end
     end
 
-    -- 2. Play/Pause Button
+    -- 2. Previous Track Button
+    local bp_prev = bar_layout.btn_prev
+    if mouse_x >= bp_prev.x1 and mouse_x <= bp_prev.x2 and mouse_y >= bp_prev.y1 and mouse_y <= bp_prev.y2 then
+        mp.commandv("playlist-prev")
+        show_bar()
+        return
+    end
+
+    -- 3. Play/Pause Button
     local bp = bar_layout.btn_play
     if mouse_x >= bp.x1 and mouse_x <= bp.x2 and mouse_y >= bp.y1 and mouse_y <= bp.y2 then
         mp.commandv("cycle", "pause")
@@ -868,7 +857,15 @@ local function on_mouse_press()
         return
     end
 
-    -- 3. Volume Mute Toggle Button
+    -- 4. Next Track Button
+    local bp_next = bar_layout.btn_next
+    if mouse_x >= bp_next.x1 and mouse_x <= bp_next.x2 and mouse_y >= bp_next.y1 and mouse_y <= bp_next.y2 then
+        mp.commandv("playlist-next")
+        show_bar()
+        return
+    end
+
+    -- 5. Volume Mute Toggle Button
     local bv = bar_layout.btn_vol
     if mouse_x >= bv.x1 and mouse_x <= bv.x2 and mouse_y >= bv.y1 and mouse_y <= bv.y2 then
         mp.commandv("cycle", "mute")
@@ -876,7 +873,7 @@ local function on_mouse_press()
         return
     end
 
-    -- 4. Volume Slider Bar Click/Drag
+    -- 6. Volume Slider Bar Click/Drag
     local vs = bar_layout.vol_slider
     if mouse_x >= vs.x1 and mouse_x <= vs.x2 and mouse_y >= vs.y1 and mouse_y <= vs.y2 then
         is_dragging_vol = true
@@ -889,7 +886,7 @@ local function on_mouse_press()
         return
     end
 
-    -- 5. Audio Menu Toggle
+    -- 7. Audio Menu Toggle
     local ba = bar_layout.btn_audio
     if mouse_x >= ba.x1 and mouse_x <= ba.x2 and mouse_y >= ba.y1 and mouse_y <= ba.y2 then
         active_menu = (active_menu == "audio") and nil or "audio"
@@ -897,7 +894,7 @@ local function on_mouse_press()
         return
     end
 
-    -- 6. Subtitle Menu Toggle
+    -- 8. Subtitle Menu Toggle
     local bs = bar_layout.btn_sub
     if mouse_x >= bs.x1 and mouse_x <= bs.x2 and mouse_y >= bs.y1 and mouse_y <= bs.y2 then
         active_menu = (active_menu == "sub") and nil or "sub"
@@ -905,7 +902,7 @@ local function on_mouse_press()
         return
     end
 
-    -- 7. Seekbar Scrubbing Trigger
+    -- 9. Seekbar Scrubbing Trigger
     local sb = bar_layout
     if mouse_x >= sb.sb_x1 and mouse_x <= sb.sb_x2 and mouse_y >= (sb.sb_y1 - 14) and mouse_y <= (sb.sb_y2 + 14) then
         active_menu = nil
@@ -934,7 +931,6 @@ local function on_mouse_release()
     end
 
     if not is_hover_bar and not active_menu then
-        disable_bar_clicks()
         if is_visible and (not hide_timer or not hide_timer:is_enabled()) then
             hide_timer = mp.add_timeout(cfg.autohide_delay, function()
                 if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
@@ -945,41 +941,137 @@ local function on_mouse_release()
     end
 end
 
--- Dynamic click binding manager
-local clicks_bound = false
+-- Intelligent Left Click Dispatcher (Separates Window Dragging from OSD Controls)
+local function handle_mouse_left(e)
+    local is_clip_maker = mp.get_property_native("user-data/clip-maker-active") or false
+    if is_clip_maker then return end
 
-enable_bar_clicks = function()
-    if clicks_bound then return end
-    clicks_bound = true
-
-    mp.add_forced_key_binding("MBTN_LEFT", "mbb_mouse_left", function(e)
-        if e.event == "down" or e.event == "press" then
+    if e.event == "down" or e.event == "press" then
+        if is_visible and (is_hover_bar or is_dragging_seek or is_dragging_vol or active_menu) then
             on_mouse_press()
-        elseif e.event == "up" then
-            on_mouse_release()
+        else
+            -- Clicked on the video canvas -> trigger native window dragging cleanly
+            pcall(mp.command, "begin-vo-dragging")
         end
-    end, { complex = true })
-
-    mp.add_forced_key_binding("WHEEL_UP", "mbb_wheel_up", function()
-        if is_visible and is_hover_bar then mp.commandv("add", "volume", 2) end
-    end)
-
-    mp.add_forced_key_binding("WHEEL_DOWN", "mbb_wheel_down", function()
-        if is_visible and is_hover_bar then mp.commandv("add", "volume", -2) end
-    end)
+    elseif e.event == "up" then
+        on_mouse_release()
+    end
 end
 
-disable_bar_clicks = function()
-    if not clicks_bound or is_dragging_seek or is_dragging_vol or active_menu then return end
-    clicks_bound = false
-    mp.remove_key_binding("mbb_mouse_left")
-    mp.remove_key_binding("mbb_wheel_up")
-    mp.remove_key_binding("mbb_wheel_down")
+-- Wheel Scroll Bindings for Bottom Bar Volume
+local wheel_bound = false
+
+local function set_wheel_bindings(enable)
+    if enable and not wheel_bound then
+        wheel_bound = true
+        mp.add_forced_key_binding("WHEEL_UP", "mbb_wheel_up", function()
+            if is_visible and is_hover_bar then mp.commandv("add", "volume", 2) end
+        end)
+        mp.add_forced_key_binding("WHEEL_DOWN", "mbb_wheel_down", function()
+            if is_visible and is_hover_bar then mp.commandv("add", "volume", -2) end
+        end)
+    elseif not enable and wheel_bound then
+        wheel_bound = false
+        mp.remove_key_binding("mbb_wheel_up")
+        mp.remove_key_binding("mbb_wheel_down")
+    end
+end
+
+-- Non-blocking mouse movement handler
+local function on_mouse_move()
+    local x, y = mp.get_mouse_pos()
+    mouse_x, mouse_y = x, y
+
+    local d = mp.get_property_native("osd-dimensions")
+    if not d or d.h == 0 then return end
+
+    if mp.get_property_native("user-data/clip-maker-active") then
+        hide_bar()
+        return
+    end
+
+    local in_bar = is_visible and (x >= bar_layout.x1 and x <= bar_layout.x2 and y >= bar_layout.y1 and y <= bar_layout.y2)
+    local in_menu = active_menu and (x >= menu_layout.x1 and x <= menu_layout.x2 and y >= menu_layout.y1 and y <= menu_layout.y2)
+    is_hover_bar = (in_bar or in_menu)
+
+    local in_trigger_zone = (y >= (d.h * 0.82))
+
+    if in_trigger_zone or is_dragging_seek or is_dragging_vol or active_menu then
+        show_bar()
+    elseif is_visible then
+        if not is_hover_bar and not is_dragging_seek and not is_dragging_vol and not active_menu then
+            if not hide_timer or not hide_timer:is_enabled() then
+                hide_timer = mp.add_timeout(cfg.autohide_delay, function()
+                    if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
+                        hide_bar()
+                    end
+                end)
+            end
+        end
+    end
+
+    if is_hover_bar or is_dragging_seek or is_dragging_vol or active_menu then
+        if hide_timer then
+            hide_timer:kill()
+            hide_timer = nil
+        end
+        set_wheel_bindings(true)
+    else
+        set_wheel_bindings(false)
+    end
+
+    -- High-Performance Scrubbing
+    if is_dragging_seek and bar_layout.sb_x2 > bar_layout.sb_x1 then
+        drag_ratio = math.max(0.0, math.min(1.0, (x - bar_layout.sb_x1) / (bar_layout.sb_x2 - bar_layout.sb_x1)))
+        local now = mp.get_time()
+        if (now - last_seek_time >= 0.04) and (math.abs(drag_ratio - last_seek_ratio) >= 0.002) then
+            last_seek_time = now
+            last_seek_ratio = drag_ratio
+            mp.commandv("seek", drag_ratio * 100, "absolute-percent", "keyframes")
+        end
+    end
+
+    -- Volume Slider Dragging
+    if is_dragging_vol and bar_layout.vol_slider.x2 > bar_layout.vol_slider.x1 then
+        local vs_x1 = bar_layout.vol_slider.x1
+        local vs_x2 = bar_layout.vol_slider.x2
+        local v_ratio = math.max(0.0, math.min(1.0, (x - vs_x1) / (vs_x2 - vs_x1)))
+        mp.commandv("set", "volume", math.floor(v_ratio * 100 + 0.5))
+        if mp.get_property_bool("mute", false) then
+            mp.set_property_bool("mute", false)
+        end
+    end
+
+    if is_visible then
+        request_render()
+    end
+end
+
+-- Mouse Leave Window Handler
+local function on_mouse_leave()
+    mouse_x, mouse_y = -1, -1
+    is_hover_bar = false
+    set_wheel_bindings(false)
+
+    if not is_dragging_seek and not is_dragging_vol and not active_menu then
+        if is_visible then
+            if hide_timer then hide_timer:kill() end
+            hide_timer = mp.add_timeout(cfg.autohide_delay, function()
+                if not is_dragging_seek and not is_dragging_vol and not active_menu and not is_hover_bar then
+                    hide_bar()
+                end
+            end)
+            request_render()
+        end
+    end
 end
 
 -- =========================================================================
--- Observers & Events
+-- Observers & Permanent Bindings
 -- =========================================================================
+
+-- Bind MBTN_LEFT with complex events to separate window drag from controls
+mp.add_forced_key_binding("MBTN_LEFT", "mbb_mouse_left", handle_mouse_left, { complex = true })
 
 mp.observe_property("time-pos", "number", function()
     if is_visible and not is_dragging_seek then request_render() end
@@ -992,12 +1084,17 @@ mp.observe_property("osd-dimensions", "native", function() if is_visible then re
 mp.observe_property("track-list", "native", function() if is_visible then request_render() end end)
 mp.observe_property("current-tracks/audio", "native", function() if is_visible then request_render() end end)
 mp.observe_property("current-tracks/sub", "native", function() if is_visible then request_render() end end)
+mp.observe_property("playlist-count", "number", function() if is_visible then request_render() end end)
+mp.observe_property("playlist-pos-1", "number", function() if is_visible then request_render() end end)
 
 -- Instant Reactive Badges (Zero overhead: fires ONLY on keypress)
 mp.observe_property("glsl-shaders", "native", function() if is_visible then request_render() end end)
 mp.observe_property("vf", "native", function() if is_visible then request_render() end end)
 mp.observe_property("scale", "string", function() if is_visible then request_render() end end)
 mp.observe_property("hwdec-current", "string", function() if is_visible then request_render() end end)
+mp.observe_property("width", "number", function() if is_visible then request_render() end end)
+mp.observe_property("height", "number", function() if is_visible then request_render() end end)
+mp.observe_property("video-out-params", "native", function() if is_visible then request_render() end end)
 
 -- Observe clip maker activity to immediately hide bar
 mp.observe_property("user-data/clip-maker-active", "bool", function(_, active)
