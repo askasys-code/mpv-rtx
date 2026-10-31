@@ -6,7 +6,7 @@
   <a href="#-the-nvidia-dark-glass-aesthetic"><img src="https://img.shields.io/badge/Design-NVIDIA_Dark_Glass-0A0A0A?style=for-the-badge&logo=materialdesign&logoColor=00E676" alt="Aesthetics"></a>
 </p>
 
-An ultra-refined, videophile-grade media environment engineered specifically for Direct3D 11 and NVIDIA RTX architectures. Built on `vo=gpu-next`, this suite delivers zero-copy hardware decoding, judder-free frame pacing for high-refresh displays, tensor-core AI upscaling, studio-grade multichannel acoustic monitoring, a dual-engine film grain controller with bitstream OBU inspection, an interactive dynamic keybindings cheatsheet, and an exclusive vector-rendered glassmorphism user interface.
+An ultra-refined, videophile-grade media environment engineered specifically for Direct3D 11 and NVIDIA RTX architectures. Built on `vo=gpu-next`, this suite delivers zero-copy hardware decoding, judder-free frame pacing for high-refresh displays, tensor-core AI upscaling, studio-grade multichannel acoustic monitoring, a dual-engine film grain controller, an interactive dynamic keybindings cheatsheet, and an exclusive vector-rendered glassmorphism user interface.
 
 ---
 
@@ -76,7 +76,6 @@ Seamlessly toggle between hardware Tensor-core AI upscaling and custom spatial r
 A dedicated, standalone film grain subsystem accessible via `6` / `G`:
 
 * **Mode A — AV1 Bitstream Normative FGS Inspection & Stripping**:
-  * **Direct Binary OBU Frame Header Analyzer**: 100% standalone and zero-dependency in-memory scanner. Scans the initial video clusters across all 8 bit-shifts in pure Lua to mathematically identify normative film grain tables directly from the stream data.
   * **Accurate Standard Deviation ($\sigma$) Derivation**: Inverts the peak luma scaling amplitude (`ScaleMid`) to derive the exact target standard deviation:
     * **Light Grain**: `ScaleMid = 16` $\rightarrow$ **`σ = 2.00 (Std Dev)`**
     * **Medium Grain**: `ScaleMid = 30` $\rightarrow$ **`σ = 3.80 (Std Dev)`**
