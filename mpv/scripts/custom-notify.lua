@@ -1,0 +1,232 @@
+-- =========================================================================
+-- MPV NVIDIA Dark Glass Custom Notification HUD (custom-notify.lua)
+-- Unified, Elegant OSD Toast System Matching Suite Aesthetic 1:1
+-- Features: Built-in Scalers, Magnification Math, Volume & Dynamic Docking
+-- =========================================================================
+
+local mp = require("mp")
+local assdraw = require("mp.assdraw")
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local theme = require("dark-glass")
+local glass = require("glass-card")
+
+local cfg = theme.derive({
+    bg_alpha      = "30",         -- ~82% dark glass opacity (toast-specific)
+})
+
+local overlay = mp.create_osd_overlay("ass-events")
+local hide_timer = nil
+
+local current_toast = {
+    title = "",
+    message = "",
+    color = cfg.color_green,
+    icon_color = cfg.color_green,
+}
+
+local function hide_toast()
+    if hide_timer then
+        hide_timer:kill()
+        hide_timer = nil
+    end
+    overlay:remove()
+end
+
+local function draw_toast()
+    local d, scale = glass.begin_frame(overlay, cfg)
+    if not d then return end
+
+    -- Typography
+    local title_size = math.floor(11.5 * scale)
+    local msg_size   = math.floor(13 * scale)
+
+    -- Dynamic Width based on string length (clamped to clean min/max bounds)
+    local t_len = current_toast.title and #current_toast.title or 0
+    local m_len = current_toast.message and #current_toast.message or 0
+    local max_chars = math.max(t_len, m_len)
+    local box_w = math.max(math.floor(340 * scale), math.floor((max_chars * 7.5 + 64) * scale))
+    local box_h = math.floor(54 * scale)
+
+    -- Dynamic Vertical Positioning:
+    -- If Sound Monitor HUD is open at top-center, dock toast at bottom-center to prevent overlap!
+    local sound_mon_active = mp.get_property_native("user-data/sound-monitor-active") or false
+    local x1 = math.floor((d.w - box_w) / 2)
+    local x2 = x1 + box_w
+    local y1
+    if sound_mon_active then
+        y1 = d.h - box_h - math.floor(96 * scale)
+    else
+        y1 = math.floor(28 * scale)
+    end
+    local y2 = y1 + box_h
+
+    local pad_x = math.floor(16 * scale)
+    local ass = assdraw.ass_new()
+
+    -- 1. Outer Translucent Rounded Glass Container
+    ass:new_event()
+    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H0A0A0A&\\alpha&H%s&}", cfg.bg_alpha))
+    ass:pos(0, 0)
+    ass:draw_start()
+    ass:round_rect_cw(x1, y1, x2, y2, 6 * scale)
+    ass:draw_stop()
+
+    -- 2. Top Accent Border (Matches toast category color)
+    ass:new_event()
+    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H10&}", current_toast.icon_color))
+    ass:pos(0, 0)
+    ass:draw_start()
+    ass:rect_cw(x1, y1, x2, y1 + math.max(2, math.floor(2.5 * scale)))
+    ass:draw_stop()
+
+    -- 3. Vector Diamond Status Icon
+    local d_rad = math.max(3, math.floor(4 * scale))
+    local d_cx = x1 + pad_x + d_rad
+    local d_cy = y1 + math.floor(box_h / 2)
+
+    ass:new_event()
+    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&}", current_toast.icon_color))
+    ass:pos(0, 0)
+    ass:draw_start()
+    ass:move_to(d_cx, d_cy - d_rad)
+    ass:line_to(d_cx + d_rad, d_cy)
+    ass:line_to(d_cx, d_cy + d_rad)
+    ass:line_to(d_cx - d_rad, d_cy)
+    ass:draw_stop()
+
+    -- 4. Text Content (Header Category + Details)
+    local text_x = d_cx + d_rad + math.floor(10 * scale)
+    local line1_y = y1 + math.floor(8 * scale)
+    local line2_y = line1_y + title_size + math.floor(3 * scale)
+
+    -- Category / Title Tag
+    ass:new_event()
+    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
+        text_x, line1_y, cfg.font_face, title_size, current_toast.color, current_toast.title:upper()))
+
+    -- Message Body / Parameters
+    ass:new_event()
+    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
+        text_x, line2_y, cfg.font_face, msg_size, cfg.color_white, current_toast.message))
+
+    overlay.data = ass.text
+    overlay:update()
+end
+
+-- Public Notification Dispatcher
+local function show_toast(title, message, color_tag, duration)
+    title = tostring(title or "NOTIFICATION")
+    message = tostring(message or "")
+    duration = tonumber(duration) or 2.0
+
+    local color = cfg.color_green
+    local icon_color = cfg.color_green
+
+    if color_tag == "cyan" then
+        color = cfg.color_cyan
+        icon_color = cfg.color_cyan
+    elseif color_tag == "yellow" then
+        color = cfg.color_yellow
+        icon_color = cfg.color_yellow
+    elseif color_tag == "red" then
+        color = cfg.color_red
+        icon_color = cfg.color_red
+    elseif color_tag == "gray" or color_tag == "off" then
+        color = cfg.color_gray
+        icon_color = cfg.color_gray
+    end
+
+    current_toast.title = title
+    current_toast.message = message
+    current_toast.color = color
+    current_toast.icon_color = icon_color
+
+    draw_toast()
+
+    if hide_timer then hide_timer:kill() end
+    hide_timer = mp.add_timeout(duration, hide_toast)
+end
+
+-- =========================================================================
+-- Built-in Handlers
+-- =========================================================================
+
+-- 1. GLSL Scaler Toggle & Notification (Keys 2, 3, 4, 5)
+mp.register_script_message("custom-notify-scaler", function(name, path)
+    local cur_shaders = mp.get_property_native("glsl-shaders") or {}
+    local is_active = false
+
+    -- Match by exact shader filename (e.g. "NVScaler", "FSR", "SGSR", "CAS")
+    local shader_stem = path:match("([^/\\]+)%.glsl$") or path
+
+    for _, s in ipairs(cur_shaders) do
+        if type(s) == "string" and s:find(shader_stem, 1, true) then
+            is_active = true
+            break
+        end
+    end
+
+    -- Remove active VSR hardware filter if present
+    mp.commandv("vf", "remove", "@vsr")
+
+    if is_active then
+        mp.commandv("change-list", "glsl-shaders", "clr", "all")
+        show_toast("UPSCALER", "OFF (Native)", "yellow", 1.8)
+    else
+        mp.commandv("change-list", "glsl-shaders", "set", path)
+        show_toast("UPSCALER", name, "cyan", 2.0)
+    end
+end)
+
+-- 2. Real-Time Zoom with Magnification Percentage
+mp.register_script_message("custom-notify-zoom", function(delta)
+    local step = tonumber(delta) or 0.10
+    local z = mp.get_property_number("video-zoom", 0) + step
+    z = math.floor(z * 100 + 0.5) / 100
+
+    mp.set_property_number("video-zoom", z)
+
+    local factor = math.floor((2 ^ z) * 100 + 0.5)
+    local desc, col
+    if z == 0 then
+        desc = "100% (Native View)"
+        col = "green"
+    else
+        desc = string.format("%d%% (Factor: %+.2f)", factor, z)
+        col = "cyan"
+    end
+    show_toast("ZOOM", desc, col, 1.2)
+end)
+
+-- 3. Master Geometry Reset (Zoom, Pan & Border Alignment)
+mp.register_script_message("custom-notify-reset-geo", function()
+    mp.set_property_number("video-zoom", 0)
+    mp.set_property_number("video-pan-x", 0)
+    mp.set_property_number("video-pan-y", 0)
+    mp.set_property_number("video-align-x", 0)
+    mp.set_property_number("video-align-y", 0)
+    mp.set_property_number("panscan", 0)
+    show_toast("GEOMETRY", "Zoom, Pan & Alignment Reset (100% Center)", "yellow", 1.8)
+end)
+
+-- 4. Master Volume Step Handler
+mp.register_script_message("custom-notify-volume", function(delta)
+    local step = tonumber(delta) or 2
+    local vol = mp.get_property_number("volume", 100) + step
+    vol = math.max(0, math.min(100, vol))
+
+    mp.set_property_number("volume", vol)
+    if mp.get_property_bool("mute", false) then
+        mp.set_property_bool("mute", false)
+    end
+    show_toast("VOLUME", string.format("%d%%", math.floor(vol + 0.5)), "yellow", 1.2)
+end)
+
+mp.register_script_message("notify", show_toast)
+mp.observe_property("osd-dimensions", "native", function()
+    if hide_timer and hide_timer:is_enabled() then
+        draw_toast()
+    end
+end)

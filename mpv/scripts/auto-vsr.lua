@@ -1,0 +1,160 @@
+-- =========================================================================
+-- NVIDIA RTX Video Super Resolution (VSR) Auto-Scaler for MPV
+-- Dynamic Viewport-Targeting & Aspect-Ratio Preserving Engine
+-- Fully Synchronized & Stateless Filter Controller
+-- =========================================================================
+
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local util = require("suite-util")
+
+local vsr_label = "@vsr"
+local format_label = "@vsr_fmt"
+
+-- Inspect the active filter chain to determine if VSR is currently engaged
+local function is_vsr_active()
+    return util.vf_has(vsr_label)
+end
+
+-- Safely remove existing VSR filter instance and formatting helpers
+local function remove_vsr_filter()
+    util.vf_remove(vsr_label, format_label)
+end
+
+-- Helper to dispatch modern Dark Glass toasts
+local toast = util.toast
+
+-- Determine active viewport resolution (Fullscreen display vs Windowed inner video area)
+local function get_target_resolution()
+    local is_fullscreen = mp.get_property_bool("fullscreen", false)
+    if is_fullscreen then
+        local dw = mp.get_property_native("display-width")
+        local dh = mp.get_property_native("display-height")
+        if dw and dh and dw > 0 and dh > 0 then
+            return dw, dh
+        end
+    end
+
+    -- Windowed mode: retrieve inner video viewport excluding letterbox/pillarbox margins
+    local dims = mp.get_property_native("osd-dimensions")
+    if dims and dims.w and dims.w > 0 and dims.h and dims.h > 0 then
+        local vid_w = dims.w - (dims.ml or 0) - (dims.mr or 0)
+        local vid_h = dims.h - (dims.mt or 0) - (dims.mb or 0)
+        if vid_w > 0 and vid_h > 0 then
+            return vid_w, vid_h
+        end
+        return dims.w, dims.h
+    end
+
+    local ww, wh = mp.get_osd_size()
+    if ww and wh and ww > 0 and wh > 0 then
+        return ww, wh
+    end
+
+    return mp.get_property_native("display-width"), mp.get_property_native("display-height")
+end
+
+-- Check if pixel format is compatible with RTX VSR hardware (8-bit and 10-bit YUV 4:2:0)
+local function is_format_supported(pixfmt)
+    return util.is_rtx_pixfmt(pixfmt, true)
+end
+
+-- Main toggle and scale calculation engine
+local function toggle_vsr(silent_rescale)
+    -- Guard: Prevent running on pure audio album art
+    local vtrack = mp.get_property_native("current-tracks/video")
+    if not vtrack or vtrack.albumart then
+        if not silent_rescale then
+            toast("NVIDIA RTX VSR", "Not applicable for audio tracks", "yellow", 2)
+        end
+        return
+    end
+
+    local raw_w = mp.get_property_native("width")
+    local raw_h = mp.get_property_native("height")
+    local video_w = mp.get_property_native("dwidth") or raw_w
+    local video_h = mp.get_property_native("dheight") or raw_h
+
+    -- 1. If VSR filter is currently active and not an auto-rescale update, turn it OFF
+    if is_vsr_active() and not silent_rescale then
+        remove_vsr_filter()
+        toast("NVIDIA RTX VSR", string.format("OFF (Native: %dx%d)", raw_w or 0, raw_h or 0), "yellow", 2)
+        return
+    end
+
+    -- 2. Validate input and display dimensions
+    local target_w, target_h = get_target_resolution()
+    if not (video_w and video_h and target_w and target_h and video_w > 0 and video_h > 0) then
+        if not silent_rescale then
+            toast("NVIDIA RTX VSR", "Display dimensions unavailable", "red", 2)
+        end
+        return
+    end
+
+    -- 3. Calculate aspect-ratio preserving isotropic scale factor
+    local scale_x = target_w / video_w
+    local scale_y = target_h / video_h
+    local scale = math.min(scale_x, scale_y)
+
+    -- Video already matches or exceeds target resolution: upscaling redundant
+    if scale <= 1.01 then
+        if is_vsr_active() then
+            remove_vsr_filter()
+        end
+        if not silent_rescale then
+            toast("NVIDIA RTX VSR", string.format("Not needed (%dx%d >= Target)", video_w, video_h), "gray", 2)
+        end
+        return
+    end
+
+    -- Clamp to NVIDIA RTX hardware boundary (1.0x to 4.0x) and round to 2 decimals
+    scale = math.min(scale, 4.0)
+    scale = math.floor(scale * 100 + 0.5) / 100
+
+    -- Remove any existing VSR filters before re-applying
+    remove_vsr_filter()
+
+    -- Clear any active GLSL shader to prevent conflicts
+    mp.set_property("glsl-shaders", "")
+
+    -- 4. Validate pixel format. If format is unsupported or software decoded, insert format filter
+    local hw_pix = mp.get_property_native("video-params/hw-pixelformat")
+    local sw_pix = mp.get_property_native("video-params/pixelformat")
+    local pixfmt = hw_pix or sw_pix
+
+    if not is_format_supported(pixfmt) then
+        mp.commandv("vf", "append", string.format("%s:format=nv12", format_label))
+    end
+
+    -- 5. Append VSR filter with labeled instance
+    local filter_cmd = string.format("%s:d3d11vpp=scaling-mode=nvidia:scale=%.2f", vsr_label, scale)
+    mp.commandv("vf", "append", filter_cmd)
+
+    local out_w = math.floor((raw_w or video_w) * scale)
+    local out_h = math.floor((raw_h or video_h) * scale)
+    local status_title = silent_rescale and "NVIDIA RTX VSR (RESCALED)" or "NVIDIA RTX VSR"
+    toast(status_title, string.format("Active (%.2fx -> %dx%d)", scale, out_w, out_h), "green", 2.2)
+end
+
+-- Dynamically update scaling factor if fullscreen mode changes while VSR is active
+local function on_fullscreen_change(_, is_fs)
+    if is_fs ~= nil and is_vsr_active() then
+        mp.add_timeout(0.1, function()
+            toggle_vsr(true)
+        end)
+    end
+end
+
+-- Automatically clean filter when loading a new file
+local function on_file_loaded()
+    remove_vsr_filter()
+end
+
+mp.register_event("file-loaded", on_file_loaded)
+mp.observe_property("fullscreen", "bool", on_fullscreen_change)
+
+-- Script Message API Handlers
+mp.register_script_message("autovsr-toggle", function() toggle_vsr(false) end)
+mp.register_script_message("autovsr-update", function() toggle_vsr(true) end)
+mp.register_script_message("autovsr-disable", remove_vsr_filter)
