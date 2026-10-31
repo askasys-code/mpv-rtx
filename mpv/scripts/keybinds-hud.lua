@@ -159,7 +159,7 @@ local function parse_keybindings()
                         add_item("grain", "grain_hud", format_key(key), comment or "Film Grain Diagnostics HUD", cfg.color_yellow)
                         matched = true
                     elseif cmd:find("toggle%-film%-grain") then
-                        add_item("grain", "grain_tgl", format_key(key), comment or "Smart Grain (AV1 / Presets)", cfg.color_green)
+                        add_item("grain", "grain_tgl", format_key(key), comment or "Toggle AV1 Native FGS", cfg.color_green)
                         matched = true
                     elseif cmd:find("cycle%-synthetic%-grain") then
                         add_item("grain", "grain_cyc", format_key(key), comment or "Cycle Synthetic Presets", cfg.color_cyan)

@@ -130,6 +130,13 @@ function M.has_vsr()
     return (vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia")) ~= nil
 end
 
+-- AV1 native film-grain strip filter active? (@filmgrain label or format=film-grain=no)
+-- Shared by film-grain, video-monitor and custom-osc.
+function M.fgs_stripped()
+    local vf_str = mp.get_property("vf") or ""
+    return (vf_str:find("@filmgrain", 1, true) or vf_str:find("film-grain=no", 1, true)) ~= nil
+end
+
 -- RTX True HDR filter active?
 function M.has_truehdr()
     local vf_str = mp.get_property("vf") or ""

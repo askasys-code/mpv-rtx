@@ -237,7 +237,6 @@ local function get_diagnostics_data()
     local clean_gamma = format_clean_gamma(gamma)
 
     -- Dynamic RTX True HDR Detection (Color space & transfer curve progression)
-    local vf_str = mp.get_property("vf") or ""
     local has_truehdr = util.has_truehdr()
 
     local gamut_col = cfg.color_yellow
@@ -250,18 +249,13 @@ local function get_diagnostics_data()
         gamma_col = cfg.color_green
     end
 
-    -- AV1 Film Grain Synthesis Detection
-    local is_av1 = clean_codec:find("AV1") ~= nil
+    -- AV1 Film Grain: only report what is known (stream is never inspected)
+    -- Stripped / OFF only when the native-FGS strip filter is active, otherwise N/A
     local grain_str = "N/A"
     local grain_col = cfg.color_gray
-    if is_av1 then
-        if vf_str:find("@filmgrain") or vf_str:find("film%-grain=no") then
-            grain_str = "Stripped / OFF"
-            grain_col = cfg.color_yellow
-        else
-            grain_str = "Active (FGS GPU)"
-            grain_col = cfg.color_green
-        end
+    if util.fgs_stripped() then
+        grain_str = "Stripped / OFF"
+        grain_col = cfg.color_yellow
     end
 
     return {

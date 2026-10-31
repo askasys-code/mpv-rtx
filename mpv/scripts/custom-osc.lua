@@ -317,10 +317,7 @@ draw_bar = function()
     local hw_tag = (hwdec ~= "" and hwdec ~= "no") and "HW" or "SW"
     local hw_col = (hwdec ~= "" and hwdec ~= "no") and cfg.color_green or cfg.color_gray
 
-    local vc = tostring(mp.get_property("video-codec") or mp.get_property("video-format") or ""):lower()
-    local is_av1 = vc:find("av1") ~= nil
-    local vf_str = mp.get_property("vf") or ""
-    local is_fgs_stripped = vf_str:find("@filmgrain") or vf_str:find("film%-grain=no")
+    local is_fgs_stripped = util.fgs_stripped()
 
     local badge_parts = {}
     if res_tag then
@@ -328,16 +325,16 @@ draw_bar = function()
     end
     table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", hw_col, hw_tag))
 
-    -- Dynamic AV1 FGS or Universal H.264 Grain Badge
-    if is_av1 then
-        local fgs_tag = is_fgs_stripped and "FGS: OFF" or "FGS: ON"
-        local fgs_col = is_fgs_stripped and cfg.color_yellow or cfg.color_green
-        table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", fgs_col, fgs_tag))
-    else
-        local syn_tag = mp.get_property("user-data/film-grain-tag")
-        if syn_tag and syn_tag ~= "" and syn_tag ~= "OFF" then
-            table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", cfg.color_green, syn_tag))
-        end
+    -- Grain badges (shown only when active, never guessed):
+    --   [AV1 FGS OFF]      native AV1 film grain synthesis stripped by the user
+    --   [GPU GRAIN LIGHT]  synthetic GPU grain preset (LIGHT / MEDIUM / HEAVY), any codec
+    if is_fgs_stripped then
+        table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", cfg.color_yellow, "AV1 FGS OFF"))
+    end
+    -- Native read: get_property would return the JSON-quoted string ("OFF" with quotes)
+    local syn_tag = mp.get_property_native("user-data/film-grain-tag")
+    if type(syn_tag) == "string" and syn_tag ~= "" and syn_tag ~= "OFF" then
+        table.insert(badge_parts, string.format("{\\c&H%s&}[GPU GRAIN %s]", cfg.color_green, syn_tag:upper()))
     end
 
     table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", upscaler_col, upscaler_tag))
@@ -1057,6 +1054,7 @@ mp.observe_property("playlist-pos-1", "number", function() if is_visible then re
 -- Instant Reactive Badges (Zero overhead: fires ONLY on keypress)
 mp.observe_property("glsl-shaders", "native", function() if is_visible then request_render() end end)
 mp.observe_property("vf", "native", function() if is_visible then request_render() end end)
+mp.observe_property("user-data/film-grain-tag", "native", function() if is_visible then request_render() end end)
 mp.observe_property("scale", "string", function() if is_visible then request_render() end end)
 mp.observe_property("hwdec-current", "string", function() if is_visible then request_render() end end)
 mp.observe_property("width", "number", function() if is_visible then request_render() end end)
