@@ -6,7 +6,7 @@
   <a href="#-the-nvidia-dark-glass-aesthetic"><img src="https://img.shields.io/badge/Design-NVIDIA_Dark_Glass-0A0A0A?style=for-the-badge&logo=materialdesign&logoColor=00E676" alt="Aesthetics"></a>
 </p>
 
-An ultra-refined, videophile-grade media environment engineered specifically for Direct3D 11 and NVIDIA RTX architectures. Built on `vo=gpu-next`, this suite delivers zero-copy hardware decoding, judder-free frame pacing for high-refresh displays, tensor-core AI upscaling, studio-grade multichannel acoustic monitoring, a dual-engine film grain controller, and an exclusive vector-rendered glassmorphism user interface.
+An ultra-refined, videophile-grade media environment engineered specifically for Direct3D 11 and NVIDIA RTX architectures. Built on `vo=gpu-next`, this suite delivers zero-copy hardware decoding, judder-free frame pacing for high-refresh displays, tensor-core AI upscaling, studio-grade multichannel acoustic monitoring, a dual-engine film grain controller with bitstream OBU inspection, an interactive dynamic keybindings cheatsheet, and an exclusive vector-rendered glassmorphism user interface.
 
 ---
 
@@ -19,12 +19,14 @@ An ultra-refined, videophile-grade media environment engineered specifically for
   - [1. NVIDIA Hardware Monitor (`g`)](#1-nvidia-hardware-monitor-g)
   - [2. Video Diagnostics Monitor (`i` / `I`)](#2-video-diagnostics-monitor-i--i)
   - [3. Studio Audio Monitor (`a`)](#3-studio-audio-monitor-a)
+  - [4. Interactive Keybindings Cheatsheet HUD (`F1` / `?`)](#4-interactive-keybindings-cheatsheet-hud-f1--)
   - [Synchronized Master View (`TAB`)](#synchronized-master-view-tab)
 - [🎮 Modern Bottom Bar (OSC)](#-modern-bottom-bar-osc)
 - [🎬 Hardware Clip Maker (`W`)](#-hardware-clip-maker-w)
 - [🧩 Modular Architecture (`script-modules/`)](#-modular-architecture-script-modules)
 - [⌨️ Keybindings Cheatsheet](#️-keybindings-cheatsheet)
 - [📦 Installation & Requirements](#-installation--requirements)
+- [📂 File Structure](#-file-structure)
 
 ---
 
@@ -71,15 +73,23 @@ Seamlessly toggle between hardware Tensor-core AI upscaling and custom spatial r
 
 ## 🎞️ Dual-Engine Film Grain Controller
 
-A dedicated film grain subsystem accessible via `6` / `G`:
+A dedicated, standalone film grain subsystem accessible via `6` / `G`:
 
-* **Mode A — AV1 Bitstream FGS Stripping**: Instant toggle to enable or strip normative AV1 Film Grain Synthesis metadata on the fly (`@filmgrain:format=film-grain=no`), allowing comparison between raw denoise-encoded streams and hardware-reconstructed grain.
-* **Mode B — Universal GPU Synthetic Grain**: Injects organic film grain into non-AV1 content (H.264, HEVC, SDR/HDR) using mpv's native GPU deband carrier. Operates with `threshold=1` to guarantee **zero detail smoothing** and **0% Gray Lift** (safe for OLED true blacks).
-  * **35mm Fine (+32)**: Subtle organic grain layer for clean 4K/1080p masters.
-  * **35mm Cinematic (+64)**: Standard filmic aesthetic.
-  * **16mm Vintage Indie (+128)**: Pronounced grain for indie and retro material.
-  * **8mm Gritty Archive (+256)**: Heavy stylized film grain.
-* **Grain Diagnostics HUD (`Alt+6` / `Alt+g`)**: Displays operating mode, engine status, decoder pipeline, and dynamic temporal frequencies.
+* **Mode A — AV1 Bitstream Normative FGS Inspection & Stripping**:
+  * **Direct Binary OBU Frame Header Analyzer**: 100% standalone and zero-dependency in-memory scanner. Scans the initial video clusters across all 8 bit-shifts in pure Lua to mathematically identify normative film grain tables directly from the stream data.
+  * **Accurate Standard Deviation ($\sigma$) Derivation**: Inverts the peak luma scaling amplitude (`ScaleMid`) to derive the exact target standard deviation:
+    * **Light Grain**: `ScaleMid = 16` $\rightarrow$ **`σ = 2.00 (Std Dev)`**
+    * **Medium Grain**: `ScaleMid = 30` $\rightarrow$ **`σ = 3.80 (Std Dev)`**
+    * **Heavy Grain**: `ScaleMid = 47` $\rightarrow$ **`σ = 6.00 (Std Dev)`**
+  * **Bitstream Strip Toggle**: Instantly strips or restores normative AV1 FGS metadata on the fly (`@filmgrain:format=film-grain=no`).
+  * **Hardware Lock Protection**: Automatically locks GPU synthetic grain when native FGS metadata is present, strictly preventing double-grain artifacts.
+* **Mode B — Universal GPU Synthetic Grain (Clean AV1, H.264 & HEVC)**:
+  * Injects organic temporal film grain using mpv's native GPU deband carrier. Operates with `threshold=1` to guarantee **zero detail smoothing** and **0% Gray Lift** (OLED true black safe).
+  * Automatically unlocks on AV1 streams when no native FGS is detected, as well as all H.264 and HEVC content:
+    * **Light Grain (+128)**: Subtle, visible organic grain for clean 4K/1080p masters.
+    * **Medium Grain (+256)**: Balanced, textured filmic aesthetic.
+    * **Heavy Grain (+512)**: Dense, rich film grain calibrated for high-resolution displays.
+* **Grain Diagnostics HUD (`Alt+6` / `Alt+g`)**: Displays operating mode, standard deviation (`σ = X.XX (Std Dev)`), bitstream detection source, decoder pipeline, and dynamic temporal frequencies.
 
 ---
 
@@ -106,6 +116,14 @@ Audiophile and multichannel acoustic telemetry suite (automatically activates on
 * **Zero-Clipping Bass Boost (`b`)**: Audiophile low-end equalizers with negative pre-attenuation headroom to eliminate digital clipping (`Clean Warmth +4dB`, `Deep Punch +7dB`, `Sub-Bass Club +10dB`).
 * **Channel Soloing (`B` / `Ctrl+1-5,0`)**: Real-time layout-adaptive channel isolation: dialogue (`Center`), music score (`Front L/R`), surround FX, rear backs, or subwoofer (`LFE`).
 
+### 4. Interactive Keybindings Cheatsheet HUD (`F1` / `?`)
+An interactive reference card rendered directly on screen:
+* **Dynamic Zero-Maintenance Parser**: Scans and parses `input.conf` in real-time every time the overlay is opened. Any remapped key or modified shortcut is reflected instantly without touching Lua code.
+* **Inline Comment Support**: Custom comments added to keybind lines (e.g. `F5 ... # My Custom Action`) are parsed as display descriptions.
+* **Symmetrical 2-Column Glass Layout**: Perfectly balanced columns (20 vs 21 items) preventing layout overflow.
+* **Smart Compound Key Formatting**: Aggregates multi-key entries cleanly (`[Wheel] / [Ctrl + / -]`, `[Alt + Arrows]`, `[Ctrl+1..5]`) to prevent text collisions.
+* **Temporary `ESC` Interception**: Pressing `ESC`, `F1`, or `?` closes the HUD cleanly without quitting mpv.
+
 ### Synchronized Master View (`TAB`)
 Pressing `TAB` invokes a synchronized master toggle that opens or closes both the **Video Diagnostics Monitor** (left) and the **NVIDIA Hardware Monitor** (right) simultaneously with 0ms redraw coalescing and zero state desynchronization.
 
@@ -117,7 +135,7 @@ A completely standalone on-screen controller engineered with decoupled mouse int
 
 * **Decoupled 60 FPS Render Loop**: Scrubbing and timeline tracking remain decoupled from mpv's main event queue, preventing drag latency or stuck sliders.
 * **Unified Window Dragging**: Clicking and dragging anywhere on the video canvas initiates native window dragging (`begin-vo-dragging`), while timeline scrubbing, menu clicks, and volume adjustments remain isolated from accidental window movement.
-* **Live Telemetry Badges**: Real-time right-docked badges for active resolution scaling (`1080p -> 4K`), HW/SW decoder, Film Grain status (`[FGS: ON/OFF]` or `[GRAIN]`), Scaler Engine, and Dynamic Range (`SDR` / `RTX TRUE HDR` / `HDR10 (PQ)` / `HLG`).
+* **Live Telemetry Badges**: Real-time right-docked badges for active resolution scaling (`1080p -> 4K`), HW/SW decoder, Film Grain status (`[FGS: ON/OFF]` or `[GRAIN: Light/Medium/Heavy]`), Scaler Engine, and Dynamic Range (`SDR` / `RTX TRUE HDR` / `HDR10 (PQ)` / `HLG`).
 * **Interactive Audio & Subtitle Popups**: Clicking on the audio or subtitle badges opens a floating glass menu with full track details (codecs, channel configurations, languages, and forced subtitle tags).
 * **Clickable Volume Slider Bar**: Click or drag directly on the volume slider, click the volume badge to toggle instant mute, or use the mouse wheel over the bar for ±2% volume adjustments.
 * **Interactive Chapter Marks**: Subtle chapter ticks across the timeline with floating chapter title tooltips on hover.
@@ -138,7 +156,11 @@ A built-in video clipping and encoding utility rendered cleanly in the bottom-le
 
 ---
 
-## 📜 Credits & License
+## 🧩 Modular Architecture (`script-modules/`)
+
+All HUD and diagnostic overlays share three core modules located in `~~/script-modules/`:
+
+### 📜 Credits & License
 * **Core Player**: [mpv](https://mpv.io) — copyright mpv developers.
 * **Scalers & Shaders**:
   * NVIDIA Image Scaling (NIS) — NVIDIA Corporation.
