@@ -9,7 +9,7 @@
 An ultra-refined, videophile-grade media environment engineered specifically for Direct3D 11 and NVIDIA RTX architectures. Built on `vo=gpu-next`, this suite delivers zero-copy hardware decoding, judder-free frame pacing for high-refresh displays, tensor-core AI upscaling, studio-grade multichannel acoustic monitoring, a dual-engine film grain controller, and an exclusive vector-rendered glassmorphism user interface.
 
 <p align="center">
-  <img width="2000" alt="MPV-RTX Interface Showcase" src="https://private-user-images.githubusercontent.com/76877661/683587193-70b2388a-6c73-41de-8415-17278fe22314.png?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3OTM0NjM2NTYsIm5iZiI6MTc5MzQ2MzM1NiwicGF0aCI6Ii83Njg3NzY2MS82ODM1ODcxOTMtNzBiMjM4OGEtNmM3My00MWRlLTg0MTUtMTcyNzhmZTIyMzE0LnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjEwMzElMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYxMDMxVDE2MTU1NlomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTk5NTk5YjM4M2U1MDk2MjI4N2EwNWJhMjQ3YWQ1YTI3YjdjMTdlNjdkOGYxNGU1YTAwNzlkNGRhNTQzM2M2MDkmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0JnJlc3BvbnNlLWNvbnRlbnQtdHlwZT1pbWFnZSUyRnBuZyJ9.xj36shfUUzOOvVwp4Z1FdgY-SDCk-tRRUByqgWqeG24" style="max-width: 100%; border-radius: 6px;">
+  <img width="2000" alt="MPV-RTX Interface Showcase" jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3OTM0NjM2NTYsIm5iZiI6MTc5MzQ2MzM1NiwicGF0aCI6Ii83Njg3NzY2MS82ODM1ODcxOTMtNzBiMjM4OGEtNmM3My00MWRlLTg0MTUtMTcyNzhmZTIyMzE0LnBuZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNjEwMzElMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjYxMDMxVDE2MTU1NlomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTk5NTk5YjM4M2U1MDk2MjI4N2EwNWJhMjQ3YWQ1YTI3YjdjMTdlNjdkOGYxNGU1YTAwNzlkNGRhNTQzM2M2MDkmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0JnJlc3BvbnNlLWNvbnRlbnQtdHlwZT1pbWFnZSUyRnBuZyJ9.xj36shfUUzOOvVwp4Z1FdgY-SDCk-tRRUByqgWqeG24" style="max-width: 100%; border-radius: 6px;">
 </p>
 
 ---
@@ -29,7 +29,6 @@ An ultra-refined, videophile-grade media environment engineered specifically for
 - [🧩 Modular Architecture (`script-modules/`)](#-modular-architecture-script-modules)
 - [⌨️ Keybindings Cheatsheet](#️-keybindings-cheatsheet)
 - [📦 Installation & Requirements](#-installation--requirements)
-- [📂 File Structure](#-file-structure)
 
 ---
 
