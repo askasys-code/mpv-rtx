@@ -1,5 +1,3 @@
---- START OF FILE mpv/scripts/auto-hdr.lua ---
-
 -- =========================================================================
 -- NVIDIA RTX Video True HDR Controller for MPV
 -- Prevents double tone-mapping on native HDR and handles SDR-to-HDR cleanly
