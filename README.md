@@ -6,165 +6,110 @@
   <a href="#-the-nvidia-dark-glass-aesthetic"><img src="https://img.shields.io/badge/Design-NVIDIA_Dark_Glass-0A0A0A?style=for-the-badge&logo=materialdesign&logoColor=00E676" alt="Aesthetics"></a>
 </p>
 
-An ultra-refined, videophile-grade media environment engineered specifically for Direct3D 11 and NVIDIA RTX architectures. Built on `vo=gpu-next`, this suite delivers zero-copy hardware decoding, judder-free frame pacing for high-refresh displays, tensor-core AI upscaling, studio-grade multichannel acoustic monitoring, a dual-engine film grain controller, an interactive dynamic keybindings cheatsheet, and an exclusive vector-rendered glassmorphism user interface.
+A videophile-grade mpv setup for Direct3D 11 and NVIDIA RTX, built on `vo=gpu-next`: zero-copy hardware decoding, judder-free pacing, RTX AI upscaling, a manual film grain controller, diagnostic HUDs and a glassmorphism UI, all drawn as vector ASS overlays.
 
----
+<img width="3840" height="2160" alt="{05C12C6A-CC41-4814-91DD-260965ACBEE2}" src="https://github.com/user-attachments/assets/6f099302-a57b-4195-869b-371b57f223be" />
 
-## 📑 Table of Contents
-- [💎 The NVIDIA Dark Glass Aesthetic](#-the-nvidia-dark-glass-aesthetic)
-- [⚡ Core Engine & Video Architecture](#-core-engine--video-architecture)
-- [🚀 Neural Shaders & AI Upscaling Pipeline](#-neural-shaders--ai-upscaling-pipeline)
-- [🎞️ Dual-Engine Film Grain Controller](#️-dual-engine-film-grain-controller)
-- [📊 The Diagnostic HUD Suite](#-the-diagnostic-hud-suite)
-  - [1. NVIDIA Hardware Monitor (`g`)](#1-nvidia-hardware-monitor-g)
-  - [2. Video Diagnostics Monitor (`i` / `I`)](#2-video-diagnostics-monitor-i--i)
-  - [3. Studio Audio Monitor (`a`)](#3-studio-audio-monitor-a)
-  - [4. Interactive Keybindings Cheatsheet HUD (`F1` / `?`)](#4-interactive-keybindings-cheatsheet-hud-f1--)
-  - [Synchronized Master View (`TAB`)](#synchronized-master-view-tab)
-- [🎮 Modern Bottom Bar (OSC)](#-modern-bottom-bar-osc)
-- [🎬 Hardware Clip Maker (`W`)](#-hardware-clip-maker-w)
-- [🧩 Modular Architecture (`script-modules/`)](#-modular-architecture-script-modules)
-- [⌨️ Keybindings Cheatsheet](#️-keybindings-cheatsheet)
-- [📦 Installation & Requirements](#-installation--requirements)
-- [📂 File Structure](#-file-structure)
-
----
+## 📑 Contents
+[Aesthetic](#-the-nvidia-dark-glass-aesthetic) · [Engine](#-core-engine) · [Upscaling](#-upscaling--hdr) · [Film Grain](#-film-grain-controller) · [HUDs](#-diagnostic-huds) · [OSC](#-bottom-bar-osc) · [Clip Maker](#-clip-maker-w) · [Shortcuts](#️-shortcuts) · [Install](#-installation) · [Structure](#-file-structure)
 
 ## 💎 The NVIDIA Dark Glass Aesthetic
 
-Unlike media players that rely on generic flat overlays, MPV-RTX features a bespoke, unified design system rendered via real-time vector ASS overlays:
+* **Obsidian glass cards** (`#0A0A0A`, ~80% opacity): readable over any video.
+* **NVIDIA green** (`#00E676`) accents and **RivaTuner cyan** (`#00E5FF`) readouts.
+* **OLED pure black** letterboxing (`#000000`).
+* **Anti-collision docking**: toasts move out of the way of active HUDs.
+* **DPI-aware scaling** from 1080p to 4K and ultra-wide.
 
-* **Obsidian Glass Containers (`#0A0A0A` @ ~80% Opacity)**: Clean, translucent frosted backdrop cards that maintain readability over bright, high-contrast video without obstructing playback.
-* **Signature NVIDIA Green Accents (`#00E676`)**: Precision top accent borders, tactical progress indicators, and custom vector diamond badges (`◆`) establishing visual hierarchy.
-* **RivaTuner Telemetry Cyan (`#00E5FF`)**: High-contrast, eye-fatigue-free readouts for clocks, codecs, timestamps, and demuxer cache buffers.
-* **OLED Pure Black (`#000000`)**: Borderless pure black letterboxing and tile disabling (`background=color`, `background-color='#000000'`) engineered to turn off self-lit OLED pixels entirely.
-* **Dynamic Anti-Collision Docking**: Toast notifications intelligently reposition to the bottom-center whenever the Studio Audio HUD is active at top-center, eliminating visual overlap.
-* **Dynamic DPI Vector Scaling**: Every glyph, vector border, button hitbox, and layout coordinate scales responsively across 1080p, 1440p, 4K UHD, and ultra-wide displays.
+## ⚡ Core Engine
 
----
+* **Direct3D 11 flip presentation** with automatic color space detection and Windows HDR passthrough.
+* **Zero-copy decoding** (`hwdec=d3d11va`): AV1 10-bit, HEVC, H.264, VP9.
+* **Judder-free pacing**: `display-resample` + `oversample` + interpolation, 60 Hz to 240 Hz+.
+* **Clean scaling**: Lanczos with clamp and anti-ringing; dedicated fast `[IMAGE]` profile for photos.
 
-## ⚡ Core Engine & Video Architecture
+## 🚀 Upscaling & HDR
 
-* **Direct3D 11 Presentation (`vo=gpu-next`)**: Built on libplacebo with DXGI Flip presentation (`d3d11-flip=yes`), automatic swapchain color space detection (`d3d11-output-csp=auto`), and direct passthrough for Windows Advanced Color/HDR (`target-colorspace-hint=yes`).
-* **Zero-Copy Hardware Decoding (`hwdec=d3d11va`)**: Native zero-copy Direct3D 11 video decoding for modern codecs (AV1 10-bit, HEVC, H.264, VP9).
-* **Judder-Free Motion Pacing**: Audio-resampling display synchronization (`video-sync=display-resample` with `tscale=oversample` and `interpolation=yes`) eliminates 3:2 pulldown judder, providing cinematic motion smoothness on 60Hz through 240Hz+ displays.
-* **High-Order Scalers & Ringing Suppression**: Lanczos luma and chroma scaling paired with `scale-clamp=0.0`, `cscale-clamp=0.0`, and `scale-antiring=0.7` for sharp edge reproduction without ringing artifacts.
-* **Optimized Image Viewer Pipeline**: Dedicated `[IMAGE]` profile with `keep-open=always`, `image-display-duration=inf`, and fast bicubic `scale=spline36` with bypass flags for instant, lag-free zoom and pan sweeps across high-resolution photography.
+| Key | Engine | Notes |
+| :---: | :--- | :--- |
+| **`1`** | NVIDIA RTX VSR | Tensor-core AI upscaling up to 4x (`Alt+1` re-scales after a resize) |
+| **`2`** | NVIDIA NIS | Adaptive sharpening and upscaling shader |
+| **`3`** | AMD FSR 1.0 | EASU + RCAS |
+| **`4`** | Qualcomm SGSR | Single-pass edge-aware shader |
+| **`5`** | AMD CAS | Contrast-adaptive sharpening |
+| **`h`** | RTX True HDR | SDR → HDR10 (PQ), with native-HDR protection |
+| **`9`** | Base scaler | Toggles `lanczos` / `nearest` |
+| **`0`** | Master reset | Clears shaders, VSR/HDR, grain, audio filters and geometry |
 
----
+## 🎞️ Film Grain Controller
 
-## 🚀 Neural Shaders & AI Upscaling Pipeline
+Fully manual: the script never inspects the stream or guesses what a file contains.
 
-Seamlessly toggle between hardware Tensor-core AI upscaling and custom spatial reconstruction compute shaders:
+| Key | Action |
+| :---: | :--- |
+| **`6`** / **`G`** | Cycle **GPU synthetic grain** on any codec: `Off` → `Light` (+128) → `Medium` (+256) → `Heavy` (+512) |
+| **`Ctrl+6`** | Toggle **native AV1 FGS** on/off (`format=film-grain=no`) |
+| **`Alt+6`** / **`Alt+G`** | Open the grain diagnostics HUD |
 
-| Hotkey | Upscaler Engine | Processing Tier | Description |
-| :---: | :--- | :--- | :--- |
-| **`1`** | **NVIDIA RTX VSR** | Hardware Tensor AI | Deep-learning super resolution up to 4.0x via D3D11VPP with isotropic aspect-ratio scaling. |
-| **`Alt+1`** | **RTX VSR Update** | Hardware Tensor AI | Forces dynamic re-scaling calculation on window resize or viewport changes. |
-| **`2`** | **NVIDIA NIS** | Spatial Compute Shader | Direction-adaptive sharpening and linear upscaling engine (`NVScaler.glsl`). |
-| **`3`** | **AMD FSR 1.0** | Spatial Two-Pass Shader | Edge-Adaptive Super Sampling (EASU) + Robust Contrast-Adaptive Sharpening (RCAS) (`FSR.glsl`). |
-| **`4`** | **Qualcomm SGSR** | Single-Pass Edge Shader | Direction-aware Lanczos reconstruction tuned for minimal power draw (`SGSR.glsl`). |
-| **`5`** | **AMD CAS (Scaled)** | Contrast Reconstruction | Adaptive high-frequency luminance sharpening in linear light (`CAS-scaled.glsl`). |
-| **`h`** | **NVIDIA RTX True HDR** | Tensor Core Inverse Tone | Real-time SDR to HDR10 (PQ) conversion with native HDR override protection. |
-| **`9`** | **Base Luma Scaler** | Interpolation Fallback | Quickly toggles fallback luma scaler between `lanczos` and `nearest`. |
-| **`0`** | **Master Reset** | Clean Fallback | Clears all active shaders, VSR/HDR instances, film grain, audio filters, and geometry offsets. |
+* GPU grain uses mpv's deband carrier with `threshold=1`: no detail smoothing, no gray lift (OLED safe).
+* Your own deband settings are saved before the first preset and restored on `Off` and on file change.
+* The HUD warns about possible **grain stacking** when a GPU preset runs on an AV1 stream whose native FGS is not stripped.
 
----
+## 📊 Diagnostic HUDs
 
-## 🎞️ Dual-Engine Film Grain Controller
+* **NVIDIA Monitor (`g`)**: clocks, GPU/NVDEC load, temperature, fan, power, VRAM, refresh rate, dropped frames, render latency, VRR detection.
+* **Video Monitor (`i`)**: container, cache, codec, decoder, aspect ratio, effective upscaled resolution, bit depth, gamut and gamma. The *Film Grain* field shows `N/A` by default and `Stripped / OFF` only when the AV1 strip filter is active.
+* **Audio Monitor (`a`)**: 7.1 speaker matrix, sample rate and bit depth, A/V drift, headphone DSP presets (`A`), zero-clipping bass boost (`b`) and channel soloing (`B`, `Ctrl+1-5,0`).
+* **Keybindings Cheatsheet (`F1` / `?`)**: parses `input.conf` live on every open, supports inline `# comments` as labels. `ESC` closes it without quitting mpv.
+* **Master view (`TAB`)**: opens or closes the Video and NVIDIA monitors together.
 
-A dedicated, standalone film grain subsystem accessible via `6` / `G`:
+## 🎮 Bottom Bar (OSC)
 
-* **Mode A — AV1 Bitstream Normative FGS Inspection & Stripping**:
-  * **Accurate Standard Deviation ($\sigma$) Derivation**: Inverts the peak luma scaling amplitude (`ScaleMid`) to derive the exact target standard deviation:
-    * **Light Grain**: `ScaleMid = 16` $\rightarrow$ **`σ = 2.00 (Std Dev)`**
-    * **Medium Grain**: `ScaleMid = 30` $\rightarrow$ **`σ = 3.80 (Std Dev)`**
-    * **Heavy Grain**: `ScaleMid = 47` $\rightarrow$ **`σ = 6.00 (Std Dev)`**
-  * **Bitstream Strip Toggle**: Instantly strips or restores normative AV1 FGS metadata on the fly (`@filmgrain:format=film-grain=no`).
-  * **Hardware Lock Protection**: Automatically locks GPU synthetic grain when native FGS metadata is present, strictly preventing double-grain artifacts.
-* **Mode B — Universal GPU Synthetic Grain (Clean AV1, H.264 & HEVC)**:
-  * Injects organic temporal film grain using mpv's native GPU deband carrier. Operates with `threshold=1` to guarantee **zero detail smoothing** and **0% Gray Lift** (OLED true black safe).
-  * Automatically unlocks on AV1 streams when no native FGS is detected, as well as all H.264 and HEVC content:
-    * **Light Grain (+128)**: Subtle, visible organic grain for clean 4K/1080p masters.
-    * **Medium Grain (+256)**: Balanced, textured filmic aesthetic.
-    * **Heavy Grain (+512)**: Dense, rich film grain calibrated for high-resolution displays.
-* **Grain Diagnostics HUD (`Alt+6` / `Alt+g`)**: Displays operating mode, standard deviation (`σ = X.XX (Std Dev)`), bitstream detection source, decoder pipeline, and dynamic temporal frequencies.
+* Standalone controller with a decoupled 60 FPS render loop and window dragging from anywhere on the video.
+* Right-docked badges: resolution scaling, `HW`/`SW`, scaler, dynamic range (`SDR`, `HDR10 (PQ)`, `HLG`, `RTX TRUE HDR`) and grain: `[GPU GRAIN LIGHT/MEDIUM/HEAVY]` or `[AV1 FGS OFF]`, shown only when active.
+* Clickable audio and subtitle track menus, volume slider with wheel support, chapter ticks with hover tooltips.
 
----
+## 🎬 Clip Maker (`W`)
 
-## 📊 The Diagnostic HUD Suite
+* NVENC encoding (`avc`, `hevc`, `av1`) with CPU fallbacks (`x264`, `x265`, `vp9`, `gif`).
+* Stability fixes: zero B-frames on NVENC MP4, automatic `yuv420p` for 10-bit/HDR sources, even-dimension clamping.
+* Interactive crop selector with in-player A-B preview; auto-detects a portable `mpv.exe`.
 
-### 1. NVIDIA Hardware Monitor (`g`)
-Direct real-time hardware telemetry polled via non-blocking asynchronous calls:
-* **GPU Metrics**: Core clock, memory clock, GPU load, and dedicated NVDEC hardware decoder engine utilization.
-* **Thermal & Power**: Die temperature with dynamic color coding, fan tachometers (including Fan Stop mode), real-time board power draw against TDP limits.
-* **VRAM Telemetry**: MiB-accurate VRAM utilization and total physical frame buffer capacity.
-* **Display Engine**: Physical display refresh rate, container framerate, dropped/mistimed frame counters, GPU render latency in milliseconds, and Windows Variable Refresh Rate (VRR/G-Sync) detection.
+## ⌨️ Shortcuts
 
-### 2. Video Diagnostics Monitor (`i` / `I`)
-Deep container, stream, and color science diagnostics:
-* **Container & Memory**: File format, physical size, timeline position, chapters, live demuxer cache duration, and RAM buffer occupancy.
-* **Video Stream**: Codec details, hardware decoder status (`d3d11va`), film grain status, exact aspect ratio (SAR/DAR), and real-time upscaled output resolution (e.g. `1080x1920 -> 2160x3840`).
-* **Color Science**: Bit-depth, pixel format, active color primaries (`BT.709` vs `BT.2020 WCG`), and gamma transfer curves (`BT.1886`, `sRGB`, `HDR10 PQ`, `HLG`, with dynamic SDR-to-HDR progression tracking).
+| Key | Action |
+| :---: | :--- |
+| `1`–`5`, `h`, `9`, `0` | Upscalers, True HDR, base scaler, master reset |
+| `6` / `G` · `Ctrl+6` · `Alt+6` | GPU grain presets · native AV1 FGS · grain HUD |
+| `g` · `i` · `a` · `TAB` | NVIDIA / Video / Audio monitors · both video monitors |
+| `A` · `b` · `B` | Headphone DSP · bass boost · channel solo |
+| `W` | Clip Maker |
+| `F1` / `?` | Keybindings cheatsheet |
 
-### 3. Studio Audio Monitor (`a`)
-Audiophile and multichannel acoustic telemetry suite (automatically activates on music playback):
-* **Dynamic 7.1 Speaker Matrix**: Physical 3x3 vector grid displaying real-time speaker activity (`FL`, `C`, `FR`, `SL`, `LFE`, `SR`, `BL`, `BR`).
-* **Hardware Acoustic Parameters**: Bit-perfect sample rates (e.g. `48.000 Hz`), audio bit-depth (`16-bit`, `24-bit`, `32-bit Float`), bitrate, active audio output device, and millisecond-accurate A/V sync drift.
-* **Headphone DSP Presets (`A`)**: One-key cycling through 7.1 Spatial Audio Expander, Bauer BS2B Binaural Crossfeed, Stereo Soundstage Expander, and Dynamic Normalizer (Night Mode).
-* **Zero-Clipping Bass Boost (`b`)**: Audiophile low-end equalizers with negative pre-attenuation headroom to eliminate digital clipping (`Clean Warmth +4dB`, `Deep Punch +7dB`, `Sub-Bass Club +10dB`).
-* **Channel Soloing (`B` / `Ctrl+1-5,0`)**: Real-time layout-adaptive channel isolation: dialogue (`Center`), music score (`Front L/R`), surround FX, rear backs, or subwoofer (`LFE`).
+## 📦 Installation
 
-### 4. Interactive Keybindings Cheatsheet HUD (`F1` / `?`)
-An interactive reference card rendered directly on screen:
-* **Dynamic Zero-Maintenance Parser**: Scans and parses `input.conf` in real-time every time the overlay is opened. Any remapped key or modified shortcut is reflected instantly without touching Lua code.
-* **Inline Comment Support**: Custom comments added to keybind lines (e.g. `F5 ... # My Custom Action`) are parsed as display descriptions.
-* **Symmetrical 2-Column Glass Layout**: Perfectly balanced columns (20 vs 21 items) preventing layout overflow.
-* **Smart Compound Key Formatting**: Aggregates multi-key entries cleanly (`[Wheel] / [Ctrl + / -]`, `[Alt + Arrows]`, `[Ctrl+1..5]`) to prevent text collisions.
-* **Temporary `ESC` Interception**: Pressing `ESC`, `F1`, or `?` closes the HUD cleanly without quitting mpv.
+**Requirements:** Windows with D3D11, an NVIDIA RTX GPU (for VSR / True HDR) and a recent mpv build with `gpu-next`.
 
-### Synchronized Master View (`TAB`)
-Pressing `TAB` invokes a synchronized master toggle that opens or closes both the **Video Diagnostics Monitor** (left) and the **NVIDIA Hardware Monitor** (right) simultaneously with 0ms redraw coalescing and zero state desynchronization.
+1. Download or clone this repository.
+2. Copy its contents into your mpv `portable_config` folder (or `%APPDATA%\mpv`).
+3. Launch mpv. Press `F1` to see every shortcut.
 
----
+## 📂 File Structure
 
-## 🎮 Modern Bottom Bar (OSC)
+```
+mpv/
+├── mpv.conf · input.conf · fonts.conf
+├── configs/          # file-extension lists
+├── scalers/          # NVScaler, FSR, SGSR, CAS-scaled (.glsl)
+├── scripts/          # OSC, monitors, film-grain, clip-maker, keybinds-hud, auto-hdr, auto-vsr, notify
+└── script-modules/   # dark-glass (theme), glass-card (rendering), suite-util (shared helpers)
+```
 
-A completely standalone on-screen controller engineered with decoupled mouse interaction:
+## 📜 Credits & License
 
-* **Decoupled 60 FPS Render Loop**: Scrubbing and timeline tracking remain decoupled from mpv's main event queue, preventing drag latency or stuck sliders.
-* **Unified Window Dragging**: Clicking and dragging anywhere on the video canvas initiates native window dragging (`begin-vo-dragging`), while timeline scrubbing, menu clicks, and volume adjustments remain isolated from accidental window movement.
-* **Live Telemetry Badges**: Real-time right-docked badges for active resolution scaling (`1080p -> 4K`), HW/SW decoder, Film Grain status (`[FGS: ON/OFF]` or `[GRAIN: Light/Medium/Heavy]`), Scaler Engine, and Dynamic Range (`SDR` / `RTX TRUE HDR` / `HDR10 (PQ)` / `HLG`).
-* **Interactive Audio & Subtitle Popups**: Clicking on the audio or subtitle badges opens a floating glass menu with full track details (codecs, channel configurations, languages, and forced subtitle tags).
-* **Clickable Volume Slider Bar**: Click or drag directly on the volume slider, click the volume badge to toggle instant mute, or use the mouse wheel over the bar for ±2% volume adjustments.
-* **Interactive Chapter Marks**: Subtle chapter ticks across the timeline with floating chapter title tooltips on hover.
-* **Mutual Exclusion**: Automatically suppresses itself when the Hardware Clip Maker is active.
+* **Core player:** [mpv](https://mpv.io), copyright mpv developers.
+* **Shaders:** NVIDIA NIS (NVIDIA), FidelityFX FSR & CAS (AMD), Snapdragon GSR (Qualcomm); GLSL ports by [agyild](https://github.com/agyild/mpv-shaders).
+* **Suite:** built and maintained by [askasys-code](https://github.com/askasys-code).
+* **License:** [MIT](LICENSE).
 
----
 
-## 🎬 Hardware Clip Maker (`W`)
-
-A built-in video clipping and encoding utility rendered cleanly in the bottom-left viewport:
-
-* **NVENC Hardware Acceleration**: High-speed trimming and encoding powered by NVIDIA NVENC (`avc-nvenc`, `hevc-nvenc`, `av1-nvenc`) and CPU fallbacks (`x264`, `x265`, `vp9`, `gif`).
-* **Hardened Stability (`bf=0`)**: Enforces zero B-frames on NVENC MP4 muxing to completely eliminate packet timestamp crashes (`pts < dts in stream 0`).
-* **Automatic 10-Bit Color Pipeline Adaptation**: Injects `format=yuv420p` for H.264 exports from 10-bit AV1 or HDR sources, avoiding unsupported pixel format failures.
-* **Even Dimension Clamping**: Restricts interactive crop boundaries and output scaling to even integer values (`% 2 == 0`) to satisfy encoder requirements.
-* **Interactive Crop & In-Player Preview**: Visual crop region selector with mouse coordinate picking and seamless A-B loop preview before rendering.
-* **Portable Binary Auto-Discovery**: Automatically detects local `mpv.exe` or Unix binaries inside portable directory setups.
-
----
-
-## 🧩 Modular Architecture (`script-modules/`)
-
-All HUD and diagnostic overlays share three core modules located in `~~/script-modules/`:
-
-### 📜 Credits & License
-* **Core Player**: [mpv](https://mpv.io) — copyright mpv developers.
-* **Scalers & Shaders**:
-  * NVIDIA Image Scaling (NIS) — NVIDIA Corporation.
-  * FidelityFX FSR & CAS — Advanced Micro Devices, Inc.
-  * Snapdragon GSR — Qualcomm Innovation Center, Inc.
-  * GLSL shader ports by [agyild](https://github.com/agyild/mpv-shaders).
-* **Suite Architecture**: Built and maintained by [askasys-code](https://github.com/askasys-code).
-* **License**: Released under the [MIT License](LICENSE).
