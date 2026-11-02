@@ -83,7 +83,7 @@ Fully manual dual-engine grain pipeline: dedicated hardware control for AV1 bits
 | `g` | Toggle native AV1 hardware FGS |
 | `6` · `Ctrl+6` | Cycle GLSL synthetic grain presets |
 | `n` · `i` · `a` · `TAB` | NVIDIA / Video / Audio monitors · both video monitors |
-| `m` · `M` | Mute audio (`m`) · toggle frame pacing (`M` / Shift+M) |
+| `m` · `M` | Toggle frame pacing (`m`) · mute audio (`M` / Shift+M) |
 | `A` · `b` · `B` | Headphone DSP · bass boost · channel solo |
 | `E` | Clip Maker |
 | `F1` / `?` | Keybindings cheatsheet |
