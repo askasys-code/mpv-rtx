@@ -11,7 +11,7 @@ A videophile-grade mpv setup for Direct3D 11 and NVIDIA RTX, built on `vo=gpu-ne
 <img width="3840" height="2160" alt="{05C12C6A-CC41-4814-91DD-260965ACBEE2}" src="https://github.com/user-attachments/assets/6f099302-a57b-4195-869b-371b57f223be" />
 
 ## 📑 Contents
-[Aesthetic](#-the-nvidia-dark-glass-aesthetic) · [Engine](#-core-engine) · [Upscaling](#-upscaling--hdr) · [Film Grain](#-film-grain-controller) · [HUDs](#-diagnostic-huds) · [OSC](#-bottom-bar-osc) · [Clip Maker](#-clip-maker-w) · [Shortcuts](#️-shortcuts) · [Install](#-installation) · [Structure](#-file-structure)
+[Aesthetic](#-the-nvidia-dark-glass-aesthetic) · [Engine](#-core-engine) · [Upscaling](#-upscaling--hdr) · [Film Grain](#-film-grain-controller) · [HUDs](#-diagnostic-huds) · [OSC](#-bottom-bar-osc) · [Clip Maker](#-clip-maker-e) · [Shortcuts](#️-shortcuts) · [Install](#-installation) · [Structure](#-file-structure)
 
 ## 💎 The NVIDIA Dark Glass Aesthetic
 
@@ -43,47 +43,49 @@ A videophile-grade mpv setup for Direct3D 11 and NVIDIA RTX, built on `vo=gpu-ne
 
 ## 🎞️ Film Grain Controller
 
-Fully manual: the script never inspects the stream or guesses what a file contains.
+Fully manual dual-engine grain pipeline: dedicated hardware control for AV1 bitstreams and a custom GLSL shader for universal playback.
 
 | Key | Action |
 | :---: | :--- |
-| **`6`** / **`G`** | Cycle **GPU synthetic grain** on any codec: `Off` → `Light` (+128) → `Medium` (+256) → `Heavy` (+512) |
-| **`Ctrl+6`** | Toggle **native AV1 FGS** on/off (`format=film-grain=no`) |
-| **`Alt+6`** / **`Alt+G`** | Open the grain diagnostics HUD |
+| **`g`** | Toggle **native AV1 hardware FGS** on/off (`format=film-grain=no`) |
+| **`6`** / **`Ctrl+6`** | Cycle **GLSL semi-monochromatic grain** on any codec: `Off` → `Light` → `Medium` → `Heavy` |
 
-* GPU grain uses mpv's deband carrier with `threshold=1`: no detail smoothing, no gray lift (OLED safe).
-* Your own deband settings are saved before the first preset and restored on `Off` and on file change.
-* The HUD warns about possible **grain stacking** when a GPU preset runs on an AV1 stream whose native FGS is not stripped.
+* **Semi-monochromatic GLSL grain** (`FilmGrain.glsl`): balanced 88% luma / 12% chroma noise ratio eliminates colored RGB confetti while retaining natural 35mm analog texture.
+* **OLED-safe shadow masking**: zero gray lift in pitch blacks (`smoothstep` luma mask) with natural highlight rolloff.
+* **Independent from debanding**: does not hijack or reset your `deband` settings.
 
 ## 📊 Diagnostic HUDs
 
-* **NVIDIA Monitor (`g`)**: clocks, GPU/NVDEC load, temperature, fan, power, VRAM, refresh rate, dropped frames, render latency, VRR detection.
-* **Video Monitor (`i`)**: container, cache, codec, decoder, aspect ratio, effective upscaled resolution, bit depth, gamut and gamma. The *Film Grain* field shows `N/A` by default and `Stripped / OFF` only when the AV1 strip filter is active.
+* **NVIDIA Monitor (`n`)**: clocks, GPU/NVDEC load, temperature, fan, power, VRAM, refresh rate, dropped frames, render latency, VRR detection.
+* **Video Monitor (`i`)**: container, cache, codec, decoder, aspect ratio, effective upscaled resolution, bit depth, gamut and gamma.
 * **Audio Monitor (`a`)**: 7.1 speaker matrix, sample rate and bit depth, A/V drift, headphone DSP presets (`A`), zero-clipping bass boost (`b`) and channel soloing (`B`, `Ctrl+1-5,0`).
-* **Keybindings Cheatsheet (`F1` / `?`)**: parses `input.conf` live on every open, supports inline `# comments` as labels. `ESC` closes it without quitting mpv.
+* **Keybindings Cheatsheet (`F1` / `?`)**: parses `input.conf` live on every open with built-in resilient fallbacks. `ESC` closes it without quitting mpv.
 * **Master view (`TAB`)**: opens or closes the Video and NVIDIA monitors together.
 
 ## 🎮 Bottom Bar (OSC)
 
 * Standalone controller with a decoupled 60 FPS render loop and window dragging from anywhere on the video.
-* Right-docked badges: resolution scaling, `HW`/`SW`, scaler, dynamic range (`SDR`, `HDR10 (PQ)`, `HLG`, `RTX TRUE HDR`) and grain: `[GPU GRAIN LIGHT/MEDIUM/HEAVY]` or `[AV1 FGS OFF]`, shown only when active.
+* Right-docked badges: resolution scaling, `HW`/`SW`, scaler, dynamic range (`SDR`, `HDR10 (PQ)`, `HLG`, `RTX TRUE HDR`) and grain tag (`[GRAIN: LIGHT/MEDIUM/HEAVY]` or `[FGS: ON/OFF]`), shown only when active.
 * Clickable audio and subtitle track menus, volume slider with wheel support, chapter ticks with hover tooltips.
 
-## 🎬 Clip Maker (`W`)
+## 🎬 Clip Maker (`E`)
 
 * NVENC encoding (`avc`, `hevc`, `av1`) with CPU fallbacks (`x264`, `x265`, `vp9`, `gif`).
 * Stability fixes: zero B-frames on NVENC MP4, automatic `yuv420p` for 10-bit/HDR sources, even-dimension clamping.
 * Interactive crop selector with in-player A-B preview; auto-detects a portable `mpv.exe`.
+* Triggered exclusively via `E` as configured in `input.conf`.
 
 ## ⌨️ Shortcuts
 
 | Key | Action |
 | :---: | :--- |
 | `1`–`5`, `h`, `9`, `0` | Upscalers, True HDR, base scaler, master reset |
-| `6` / `G` · `Ctrl+6` · `Alt+6` | GPU grain presets · native AV1 FGS · grain HUD |
-| `g` · `i` · `a` · `TAB` | NVIDIA / Video / Audio monitors · both video monitors |
+| `g` | Toggle native AV1 hardware FGS |
+| `6` · `Ctrl+6` | Cycle GLSL synthetic grain presets |
+| `n` · `i` · `a` · `TAB` | NVIDIA / Video / Audio monitors · both video monitors |
+| `m` · `M` | Mute audio (`m`) · toggle frame pacing (`M` / Shift+M) |
 | `A` · `b` · `B` | Headphone DSP · bass boost · channel solo |
-| `W` | Clip Maker |
+| `E` | Clip Maker |
 | `F1` / `?` | Keybindings cheatsheet |
 
 ## 📦 Installation
