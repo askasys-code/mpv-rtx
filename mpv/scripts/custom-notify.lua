@@ -6,7 +6,8 @@
 
 local mp = require("mp")
 local assdraw = require("mp.assdraw")
--- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder)
 package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
     .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
 local theme = require("dark-glass")
@@ -50,7 +51,7 @@ local function draw_toast()
     local box_h = math.floor(54 * scale)
 
     -- Dynamic Vertical Positioning:
-    -- If Sound Monitor HUD is open at top-center, dock toast at bottom-center to prevent overlap!
+    -- If Sound Monitor HUD is open at top-center, dock toast at bottom-center to prevent overlap
     local sound_mon_active = mp.get_property_native("user-data/sound-monitor-active") or false
     local x1 = math.floor((d.w - box_w) / 2)
     local x2 = x1 + box_w
@@ -157,8 +158,6 @@ end
 mp.register_script_message("custom-notify-scaler", function(name, path)
     local cur_shaders = mp.get_property_native("glsl-shaders") or {}
     local is_active = false
-
-    -- Match by exact shader filename (e.g. "NVScaler", "FSR", "SGSR", "CAS")
     local shader_stem = path:match("([^/\\]+)%.glsl$") or path
 
     for _, s in ipairs(cur_shaders) do
@@ -171,11 +170,36 @@ mp.register_script_message("custom-notify-scaler", function(name, path)
     -- Remove active VSR hardware filter if present
     mp.commandv("vf", "remove", "@vsr")
 
+    local SCALER_NAMES = { "NVScaler", "FSR", "SGSR", "CAS" }
+    local new_shaders = {}
+
     if is_active then
-        mp.commandv("change-list", "glsl-shaders", "clr", "all")
+        -- Remove this scaler, preserve other shaders (like FilmGrain)
+        for _, s in ipairs(cur_shaders) do
+            if type(s) == "string" and not s:find(shader_stem, 1, true) then
+                table.insert(new_shaders, s)
+            end
+        end
+        mp.set_property_native("glsl-shaders", new_shaders)
         show_toast("UPSCALER", "OFF (Native)", "yellow", 1.8)
     else
-        mp.commandv("change-list", "glsl-shaders", "set", path)
+        -- Remove other scalers, keep non-scaler shaders, append new scaler
+        for _, s in ipairs(cur_shaders) do
+            if type(s) == "string" then
+                local is_scaler = false
+                for _, sc in ipairs(SCALER_NAMES) do
+                    if s:find(sc, 1, true) then
+                        is_scaler = true
+                        break
+                    end
+                end
+                if not is_scaler then
+                    table.insert(new_shaders, s)
+                end
+            end
+        end
+        table.insert(new_shaders, path)
+        mp.set_property_native("glsl-shaders", new_shaders)
         show_toast("UPSCALER", name, "cyan", 2.0)
     end
 end)

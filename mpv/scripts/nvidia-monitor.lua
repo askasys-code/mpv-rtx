@@ -331,7 +331,7 @@ hud = util.monitor({
 local toggle_overlay = hud.toggle
 
 -- Keybindings and script messages
-mp.add_forced_key_binding("g", "toggle-gpu-monitor-forced", toggle_overlay)
+mp.add_forced_key_binding("n", "toggle-gpu-monitor-forced", toggle_overlay)
 mp.register_script_message("toggle-gpu-monitor", toggle_overlay)
 
 mp.register_script_message("set-gpu-monitor", hud.switch)

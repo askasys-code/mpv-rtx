@@ -8,7 +8,8 @@ local mp = require("mp")
 local msg = require("mp.msg")
 local utils = require("mp.utils")
 local mpopts = require("mp.options")
--- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder)
 package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
     .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
 local theme = require("dark-glass")
@@ -17,7 +18,7 @@ local util = require("suite-util")
 
 -- Default Configuration
 local options = {
-    keybind = "W",                      -- Shift + W
+    keybind = "",                       -- Empty = controlled exclusively via input.conf (E)
     output_directory = "",              -- Empty = same directory as source file
     output_template = "%F-[%s-%e]%M",   -- Filename template
     scale_height = -1,                  -- Target height (-1 = keep source height)
@@ -1217,7 +1218,9 @@ end
 
 local main = MainPage.new()
 
-mp.add_key_binding(options.keybind, "display-clip-maker", function()
+-- Bound exclusively via input.conf (E script-binding display-clip-maker)
+local bind_key = (options.keybind and options.keybind ~= "") and options.keybind or nil
+mp.add_key_binding(bind_key, "display-clip-maker", function()
     main:show()
 end, { repeatable = false })
 

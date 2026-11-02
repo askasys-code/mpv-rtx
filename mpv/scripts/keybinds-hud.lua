@@ -27,19 +27,19 @@ local function format_key(k)
     local parts = {}
     for part in k:gmatch("[^+]+") do
         local p = part
-        if p == "MBTN_RIGHT"   then p = "R-Click"
-        elseif p == "MBTN_LEFT"then p = "L-Click"
-        elseif p == "MBTN_MID" then p = "Mid-Click"
-        elseif p == "SPACE"    then p = "Space"
-        elseif p == "BS"       then p = "BS"
-        elseif p == "WHEEL_UP" then p = "Wheel-Up"
-        elseif p == "WHEEL_DOWN" then p = "Wheel-Dn"
-        elseif p == "PGUP"     then p = "PgUp"
-        elseif p == "PGDWN"    then p = "PgDn"
-        elseif p == "LEFT"     then p = "Left"
-        elseif p == "RIGHT"    then p = "Right"
-        elseif p == "UP"       then p = "Up"
-        elseif p == "DOWN"     then p = "Down"
+        if p == "MBTN_RIGHT"    then p = "R-Click"
+        elseif p == "MBTN_LEFT" then p = "L-Click"
+        elseif p == "MBTN_MID"  then p = "Mid-Click"
+        elseif p == "SPACE"     then p = "Space"
+        elseif p == "BS"        then p = "BS"
+        elseif p == "WHEEL_UP"  then p = "Wheel-Up"
+        elseif p == "WHEEL_DOWN"then p = "Wheel-Dn"
+        elseif p == "PGUP"      then p = "PgUp"
+        elseif p == "PGDWN"     then p = "PgDn"
+        elseif p == "LEFT"      then p = "Left"
+        elseif p == "RIGHT"     then p = "Right"
+        elseif p == "UP"        then p = "Up"
+        elseif p == "DOWN"      then p = "Down"
         end
         table.insert(parts, p)
     end
@@ -105,12 +105,12 @@ local function parse_keybindings()
 
     local function add_item(cat_name, item_id, key_str, desc, col)
         local cat = categories[cat_name]
+        if not cat then return end
         if not cat.map[item_id] then
-            local entry = { key_str = key_str, desc = desc, col = col }
+            local entry = { key_str = tostring(key_str or ""), desc = tostring(desc or ""), col = tostring(col or cfg.color_white) }
             cat.map[item_id] = entry
             table.insert(cat.items, entry)
         else
-            -- If already present and key is different, append only if short
             local existing = cat.map[item_id]
             if not existing.key_str:find(key_str, 1, true) and #existing.key_str < 16 then
                 existing.key_str = existing.key_str .. " / " .. key_str
@@ -130,7 +130,7 @@ local function parse_keybindings()
                     local matched = false
 
                     -- =========================================================
-                    -- 1. SCALERS & NEURAL AI (Individual non-merging entries)
+                    -- 1. SCALERS & NEURAL AI
                     -- =========================================================
                     if cmd:find("autovsr%-toggle") then
                         add_item("scalers", "vsr", format_key(key), comment or "RTX Video Super Resolution (VSR)", cfg.color_cyan)
@@ -155,18 +155,18 @@ local function parse_keybindings()
                     -- =========================================================
                     -- 2. FILM GRAIN SUITE
                     -- =========================================================
-                    elseif cmd:find("toggle%-film%-grain%-hud") then
-                        add_item("grain", "grain_hud", format_key(key), comment or "Film Grain Diagnostics HUD", cfg.color_yellow)
-                        matched = true
-                    elseif cmd:find("toggle%-film%-grain") then
-                        add_item("grain", "grain_tgl", format_key(key), comment or "Toggle AV1 Native FGS", cfg.color_green)
+                    elseif cmd:find("toggle%-av1%-grain") then
+                        add_item("grain", "grain_av1", format_key(key), comment or "Toggle AV1 Native Grain", cfg.color_green)
                         matched = true
                     elseif cmd:find("cycle%-synthetic%-grain") then
-                        add_item("grain", "grain_cyc", format_key(key), comment or "Cycle Synthetic Presets", cfg.color_cyan)
+                        add_item("grain", "grain_glsl", format_key(key), comment or "Cycle GLSL Grain Presets", cfg.color_cyan)
+                        matched = true
+                    elseif cmd:find("toggle%-film%-grain") then
+                        add_item("grain", "grain_tgl", format_key(key), comment or "Toggle Film Grain", cfg.color_green)
                         matched = true
 
                     -- =========================================================
-                    -- 3. AUDIO DSP & CHANNELS (Compact solo grouping)
+                    -- 3. AUDIO DSP & CHANNELS
                     -- =========================================================
                     elseif cmd:find("cycle%-audio%-dsp") then
                         add_item("audio", "dsp", format_key(key), comment or "Cycle Headphone DSP Presets", cfg.color_cyan)
@@ -213,7 +213,7 @@ local function parse_keybindings()
                         matched = true
 
                     -- =========================================================
-                    -- 5. VIEWPORT & GEOMETRY (Compact compound grouping)
+                    -- 5. VIEWPORT & GEOMETRY
                     -- =========================================================
                     elseif cmd:find("custom%-notify%-zoom") then
                         add_item("geometry", "zoom", "[Wheel] / [Ctrl + / -]", comment or "Smooth Zoom In / Out", cfg.color_cyan)
@@ -232,7 +232,7 @@ local function parse_keybindings()
                         matched = true
 
                     -- =========================================================
-                    -- 6. PLAYBACK & TOOLS (Clean merged navigation)
+                    -- 6. PLAYBACK & TOOLS
                     -- =========================================================
                     elseif cmd:find("cycle%s+pause") then
                         add_item("playback", "pause", format_key(key), comment or "Play / Pause", cfg.color_green)
@@ -286,9 +286,7 @@ local function parse_keybindings()
     end
 
     -- =========================================================================
-    -- Perfectly Balanced Two-Column Distribution
-    -- Column 1: Scalers (9) + Grain (3) + Audio (8)       = ~20 items
-    -- Column 2: Telemetry (5) + Geometry (5) + Playback (11) = ~21 items
+    -- Balanced Two-Column Distribution
     -- =========================================================================
     col1_sections = {}
     col2_sections = {}
@@ -340,7 +338,9 @@ local function draw_column(ass, cfg_theme, g, col_x1, col_x2, start_y, sections)
         cur_y = cur_y + g.section_step
 
         for _, item in ipairs(sec.items) do
-            local key_lbl, desc_lbl, key_col = item[1], item[2], item[3] or cfg_theme.color_white
+            local key_lbl  = tostring(item[1] or "")
+            local desc_lbl = tostring(item[2] or "")
+            local key_col  = tostring(item[3] or cfg_theme.color_white)
 
             ass:new_event()
             ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s",
