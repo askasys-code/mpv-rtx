@@ -5,14 +5,20 @@
 -- =========================================================================
 
 local mp = require("mp")
-local assdraw = require("mp.assdraw")
 local msg = require("mp.msg")
 local utils = require("mp.utils")
 local mpopts = require("mp.options")
 
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local theme = require("dark-glass")
+local glass = require("glass-card")
+local util = require("suite-util")
+
 -- Default Configuration
 local options = {
-    keybind = "W",                      -- Shift + W
+    keybind = "",                       -- Empty = controlled exclusively via input.conf (E)
     output_directory = "",              -- Empty = same directory as source file
     output_template = "%F-[%s-%e]%M",   -- Filename template
     scale_height = -1,                  -- Target height (-1 = keep source height)
@@ -33,27 +39,19 @@ local options = {
     nvenc_preset = "p4",                -- p1 (fastest) to p7 (slowest). p4/p5/p6 recommended
     
     -- UI Styling (Matches nvidia-monitor, sound-monitor & video-monitor)
-    ui_scale = 1.35,                    -- User size multiplier (1.0 = normal, 1.35 = 4K recommended, 1.6 = TV)
-    font_face = "Segoe UI",
+    ui_scale = theme.ui_scale,          -- Defaults from dark-glass.lua (overridable via script-opts)
+    font_face = theme.font_face,
     message_duration = 4,
     gif_dither = 2                      -- 0-5 for bayer, 6 for sierra2_4a
 }
 
 mpopts.read_options(options, "clip_maker")
 
--- Visual Palette & Theme Configuration (Identical to Suite Monitors)
-local cfg = {
-    ui_scale        = options.ui_scale or 1.35,
-    font_face       = options.font_face or "Segoe UI",
-    color_green     = "00E676",         -- NVIDIA Green (Headers, Titles & Confirm)
-    color_cyan      = "00E5FF",         -- RivaTuner Cyan (Values & Active Selections)
-    color_yellow    = "00C8FF",         -- Amber Warning (Durations & Secondary Keys)
-    color_red       = "3B3BFF",         -- Critical Red (Cancel / Abort)
-    color_white     = "FFFFFF",
-    color_gray      = "9E9E9E",         -- Descriptions & Inactive
-    color_dark_box  = "1C1C1C",
-    bg_alpha        = "35",             -- Glass box transparency (~80% dark)
-}
+-- Visual Palette & Theme Configuration (shared via dark-glass.lua)
+local cfg = theme.derive({
+    ui_scale        = options.ui_scale,    -- script-opts override (clip_maker)
+    font_face       = options.font_face,   -- script-opts override (clip_maker)
+})
 
 local overlay = mp.create_osd_overlay("ass-events")
 local is_encoding = false
@@ -89,17 +87,7 @@ local function get_mpv_binary()
     return "mpv"
 end
 
-local function format_time(seconds, no_ms, full)
-    if not seconds or seconds < 0 then return "00:00" end
-    local ms = no_ms and "" or string.format(".%03d", math.floor((seconds % 1) * 1000))
-    local s = math.floor(seconds) % 60
-    local m = math.floor(seconds / 60) % 60
-    local h = math.floor(seconds / 3600)
-    if full or h > 0 then
-        return string.format("%d:%02d:%02d%s", h, m, s, ms)
-    end
-    return string.format("%02d:%02d%s", m, s, ms)
-end
+local format_time = util.format_time.precise
 
 local function seconds_to_path_element(seconds, no_ms)
     local str = format_time(seconds, no_ms, false)
@@ -112,11 +100,7 @@ local function parse_directory(dir)
     return (dir:gsub("^~", home))
 end
 
-local function truncate_string(str, max_len)
-    if not str then return "" end
-    if #str > max_len then return str:sub(1, max_len - 3) .. "..." end
-    return str
-end
+local truncate_string = util.truncate_string
 
 -- =========================================================================
 -- Video Geometry & Coordinate Mapping
@@ -421,151 +405,20 @@ local format_keys = {
 -- =========================================================================
 
 local function render_glass_card(params)
-    local d = mp.get_property_native("osd-dimensions")
-    if not d or d.w == 0 or d.h == 0 then return end
+    local d, scale = glass.begin_frame(overlay, cfg)
+    if not d then return end
 
-    overlay.res_x = d.w
-    overlay.res_y = d.h
-
-    local base_scale = math.max(1.0, d.h / 1080)
-    local scale = base_scale * (cfg.ui_scale or 1.0)
-
-    local title_size    = math.floor(13 * scale)
-    local subtitle_size = math.floor(11.5 * scale)
-    local section_size  = math.floor(10.5 * scale)
-    local row_size      = math.floor(11.5 * scale)
-
-    local row_step      = math.floor(19.5 * scale)
-    local section_step  = math.floor(18 * scale)
-    local section_gap   = math.floor(10 * scale)
-
-    local top_pad       = math.floor(16 * scale)
-    local header_gap    = math.floor(8 * scale)
-    local bottom_pad    = math.floor(20 * scale)
-    local pad_x         = math.floor(18 * scale)
-    local indent_x      = math.floor(8 * scale)
-
-    local sections = params.sections or {}
-    local total_rows = 0
-    for _, sec in ipairs(sections) do
-        total_rows = total_rows + #sec.items
-    end
-
-    local header_h = title_size + subtitle_size + math.floor(8 * scale)
-    local sections_h = (#sections * section_step) + (math.max(0, #sections - 1) * section_gap) + (total_rows * row_step)
-    local box_h = top_pad + header_h + header_gap + sections_h + bottom_pad
-    
-    -- Exactly 400px * scale (Matches video-monitor.lua column width 1:1)
-    local box_w = math.floor((params.width or 400) * scale)
-
-    -- Anchor to Bottom-Left corner, perfectly sharing the horizontal column with video-monitor
-    local margin_x = math.floor(24 * scale)
-    local margin_y = math.floor(24 * scale)
-    local x1 = margin_x
-    local x2 = x1 + box_w
-    local y2 = d.h - margin_y
-    local y1 = y2 - box_h
-
-    -- Safety check: ensure card never clips above top boundary
-    if y1 < margin_y then
-        y1 = margin_y
-        y2 = y1 + box_h
-    end
-
-    local ass = assdraw.ass_new()
-
-    -- 0. Optional Backdrop Mask (Used by Crop Page)
-    if params.extra_draw then
-        params.extra_draw(ass, d, scale)
-    end
-
-    -- 1. Outer Translucent Rounded Glass Container
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H0A0A0A&\\alpha&H%s&}", cfg.bg_alpha))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:round_rect_cw(x1, y1, x2, y2, 8 * scale)
-    ass:draw_stop()
-
-    -- 2. Top Accent Border (NVIDIA Green)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H10&}", cfg.color_green))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1, y1, x2, y1 + math.max(2, math.floor(2.5 * scale)))
-    ass:draw_stop()
-
-    -- 3. Header Title & Subtitle
-    local cur_y = y1 + top_pad
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-        x1 + pad_x, cur_y, cfg.font_face, title_size, cfg.color_green, params.title or "CLIP MAKER"))
-
-    cur_y = cur_y + title_size + math.floor(4 * scale)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-        x1 + pad_x, cur_y, cfg.font_face, subtitle_size, cfg.color_white, truncate_string(params.subtitle or "", 38)))
-
-    -- Subtle Horizontal Divider
-    cur_y = cur_y + subtitle_size + math.floor(8 * scale)
-    ass:new_event()
-    ass:append("{\\an7\\bord0\\shad0\\c&HFFFFFF&\\alpha&HD0&}")
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1 + pad_x, cur_y, x2 - pad_x, cur_y + 1)
-    ass:draw_stop()
-
-    cur_y = cur_y + math.floor(8 * scale)
-
-    -- 4. Render Categorized Sections with Vector Diamond Headers
-    local d_rad = math.max(3, math.floor(3.5 * scale))
-    for s_idx, sec in ipairs(sections) do
-        local d_cx = x1 + pad_x + d_rad
-        local d_cy = cur_y + math.floor(section_size * 0.52)
-        local text_x = x1 + pad_x + (d_rad * 2) + math.floor(6 * scale)
-
-        -- Section Header Vector Diamond Icon
-        ass:new_event()
-        ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&}", sec.title_color or cfg.color_green))
-        ass:pos(0, 0)
-        ass:draw_start()
-        ass:move_to(d_cx, d_cy - d_rad)
-        ass:line_to(d_cx + d_rad, d_cy)
-        ass:line_to(d_cx, d_cy + d_rad)
-        ass:line_to(d_cx - d_rad, d_cy)
-        ass:draw_stop()
-
-        -- Section Header Title Tag
-        ass:new_event()
-        ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-            text_x, cur_y, cfg.font_face, section_size, sec.title_color or cfg.color_green, sec.title))
-
-        cur_y = cur_y + section_step
-
-        -- Section Item Rows
-        for _, item in ipairs(sec.items) do
-            local label, val_text, val_color = item[1], item[2], item[3]
-
-            -- Label (Left-aligned + Indented: \an7)
-            ass:new_event()
-            ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b0\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x1 + pad_x + indent_x, cur_y, cfg.font_face, row_size, cfg.color_gray, label))
-
-            -- Value (Right-aligned: \an9)
-            ass:new_event()
-            ass:append(string.format("{\\an9\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x2 - pad_x, cur_y, cfg.font_face, row_size, val_color or cfg.color_white, val_text))
-
-            cur_y = cur_y + row_step
-        end
-
-        if s_idx < #sections then
-            cur_y = cur_y + section_gap
-        end
-    end
-
-    overlay.data = ass.text
-    overlay:update()
+    glass.draw(overlay, cfg, {
+        d = d, scale = scale,
+        title = params.title or "CLIP MAKER",
+        subtitle = truncate_string(params.subtitle or "", 38),
+        sections = params.sections,
+        width = params.width,
+        anchor = "bottom-left",
+        header_gap = 8, bottom_pad = 20,
+        thin_accent = true,
+        backdrop = params.extra_draw,
+    })
 end
 
 -- =========================================================================
@@ -1365,7 +1218,9 @@ end
 
 local main = MainPage.new()
 
-mp.add_key_binding(options.keybind, "display-clip-maker", function()
+-- Bound exclusively via input.conf (E script-binding display-clip-maker)
+local bind_key = (options.keybind and options.keybind ~= "") and options.keybind or nil
+mp.add_key_binding(bind_key, "display-clip-maker", function()
     main:show()
 end, { repeatable = false })
 

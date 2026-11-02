@@ -5,26 +5,21 @@
 
 local mp = require("mp")
 local utils = require("mp.utils")
-local assdraw = require("mp.assdraw")
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local theme = require("dark-glass")
+local glass = require("glass-card")
+local util = require("suite-util")
 
-local is_enabled = false
+local hud -- monitor controller (created below)
 local is_fetching = false
-local poll_timer = nil
 local vrr_os_enabled = false
 
 -- Visual Configuration & Styling (ASS Colors in &HBBGGRR& format)
-local cfg = {
-    ui_scale        = 1.35,        -- User size multiplier (1.0 = normal, 1.35 = 4K recommended, 1.6 = large for TV)
+local cfg = theme.derive({
     poll_interval   = 1.0,         -- Telemetry update rate in seconds
-    font_face       = "Segoe UI",
-    color_green     = "00E676",    -- NVIDIA Green (Headers, Titles & RTX True HDR)
-    color_cyan      = "00E5FF",    -- RivaTuner Cyan (Clocks, FPS & Native HDR)
-    color_yellow    = "00C8FF",    -- Amber Warning (Power & Latencies)
-    color_red       = "3B3BFF",    -- Critical Red
-    color_white     = "FFFFFF",
-    color_gray      = "9E9E9E",
-    bg_alpha        = "35",        -- Box transparency (Hex: 00-FF, 35 = ~80% dark)
-}
+})
 
 -- Telemetry State
 local stats = {
@@ -75,60 +70,37 @@ local function check_windows_vrr()
 end
 
 -- Resolve active dynamic range state (SDR, Native HDR or NVIDIA RTX True HDR)
+local DYNAMIC_RANGE = {
+    truehdr = { "RTX True HDR (Tensor AI)", "color_green" },
+    pq      = { "Native HDR10 (PQ)",        "color_cyan" },
+    hlg     = { "Native HDR (HLG)",         "color_cyan" },
+    bt2020  = { "Native HDR (BT.2020)",     "color_cyan" },
+    sdr     = { "SDR (Standard)",           "color_gray" },
+}
+
 local function get_dynamic_range_status()
     local has_video = mp.get_property_native("current-tracks/video")
     if not has_video then
         return "N/A", cfg.color_gray
     end
 
-    -- 1. Check if NVIDIA RTX Video True HDR is active in video filters
-    local vf_str = mp.get_property("vf") or ""
-    if vf_str:find("@truehdr") or vf_str:find("nvidia%-true%-hdr") then
-        return "RTX True HDR (Tensor AI)", cfg.color_green
-    end
-
-    -- 2. Check native HDR color transfer characteristics
-    local gamma = mp.get_property("video-params/gamma") or ""
-    local sig_peak = mp.get_property_number("video-params/sig-peak", 1.0)
-    local colormatrix = mp.get_property("video-params/colormatrix") or ""
-
-    if gamma == "pq" then
-        return "Native HDR10 (PQ)", cfg.color_cyan
-    elseif gamma == "hlg" then
-        return "Native HDR (HLG)", cfg.color_cyan
-    elseif sig_peak > 1.0 or colormatrix:find("bt.2020") then
-        return "Native HDR (BT.2020)", cfg.color_cyan
-    end
-
-    return "SDR (Standard)", cfg.color_gray
+    local entry = DYNAMIC_RANGE[util.dynamic_range_kind(1.0)]
+    return entry[1], cfg[entry[2]]
 end
 
 -- Resolve active upscaler engine
+local UPSCALERS = {
+    vsr  = { "RTX VSR (Tensor AI)", "color_green" },
+    nis  = { "NVIDIA NIS",          "color_cyan" },
+    fsr  = { "AMD FSR 1.0",         "color_cyan" },
+    sgsr = { "Qualcomm SGSR",       "color_cyan" },
+    cas  = { "AMD CAS",             "color_cyan" },
+    glsl = { "Custom GLSL",         "color_cyan" },
+}
+
 local function get_active_upscaler()
-    local vf_str = mp.get_property("vf") or ""
-    -- Disambiguate RTX VSR from True HDR (both utilize d3d11vpp)
-    if vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia") then
-        return "RTX VSR (Tensor AI)", cfg.color_green
-    end
-
-    -- Filter out empty string tokens (e.g. when glsl-shaders="" is set on image opening)
-    local raw_shaders = mp.get_property_native("glsl-shaders") or {}
-    local shaders = {}
-    for _, s in ipairs(raw_shaders) do
-        if type(s) == "string" and s:match("%S") then
-            table.insert(shaders, s)
-        end
-    end
-
-    if #shaders > 0 then
-        for _, s in ipairs(shaders) do
-            if s:find("NVScaler") then return "NVIDIA NIS", cfg.color_cyan end
-            if s:find("FSR") then return "AMD FSR 1.0", cfg.color_cyan end
-            if s:find("SGSR") then return "Qualcomm SGSR", cfg.color_cyan end
-            if s:find("CAS") then return "AMD CAS", cfg.color_cyan end
-        end
-        return "Custom GLSL", cfg.color_cyan
-    end
+    local entry = UPSCALERS[util.upscaler_kind() or ""]
+    if entry then return entry[1], cfg[entry[2]] end
 
     -- Dynamically reflect the active base luma scaler (e.g., Spline36 for images, Lanczos for video)
     local base_scale = mp.get_property("scale") or "lanczos"
@@ -247,20 +219,13 @@ end
 
 -- Render ASS HUD Overlay with Dynamic Range and Unified Vector Diamond Headers
 local function draw_hud()
-    if not is_enabled then
+    if not hud.enabled then
         overlay:remove()
         return
     end
 
-    local d = mp.get_property_native("osd-dimensions")
-    if not d or d.w == 0 or d.h == 0 then return end
-
-    overlay.res_x = d.w
-    overlay.res_y = d.h
-
-    -- Base DPI scaling combined with user multiplier
-    local base_scale = math.max(1.0, d.h / 1080)
-    local scale = base_scale * (cfg.ui_scale or 1.0)
+    local d, scale = glass.begin_frame(overlay, cfg)
+    if not d then return end
 
     -- Temperature dynamic coloring
     local temp_num = tonumber(stats.temp) or 0
@@ -320,135 +285,18 @@ local function draw_hud()
         }
     }
 
-    -- Font Sizes & Spacing Geometry
-    local title_size    = math.floor(13 * scale)
-    local subtitle_size = math.floor(11.5 * scale)
-    local section_size  = math.floor(10.5 * scale)
-    local row_size      = math.floor(11.5 * scale)
-
-    local row_step      = math.floor(19.5 * scale)
-    local section_step  = math.floor(18 * scale)
-    local section_gap   = math.floor(10 * scale)
-
-    local top_pad       = math.floor(16 * scale)
-    local header_gap    = math.floor(12 * scale)
-    local bottom_pad    = math.floor(22 * scale)
-    local pad_x         = math.floor(18 * scale)
-    local indent_x      = math.floor(8 * scale)
-
-    -- Dynamic Height Calculation
-    local total_rows = 0
-    for _, sec in ipairs(sections) do
-        total_rows = total_rows + #sec.items
-    end
-
-    local header_h = title_size + subtitle_size + math.floor(8 * scale)
-    local sections_h = (#sections * section_step) + ((#sections - 1) * section_gap) + (total_rows * row_step)
-    local box_h = top_pad + header_h + header_gap + sections_h + bottom_pad
-    local box_w = math.floor(400 * scale)
-
-    local margin_x = math.floor(24 * scale)
-    local margin_y = math.floor(24 * scale)
-    local x2 = d.w - margin_x
-    local x1 = x2 - box_w
-    local y1 = margin_y
-    local y2 = y1 + box_h
-
-    local ass = assdraw.ass_new()
-
-    -- 1. Outer Translucent Rounded Glass Container
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H0A0A0A&\\alpha&H%s&}", cfg.bg_alpha))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:round_rect_cw(x1, y1, x2, y2, 8 * scale)
-    ass:draw_stop()
-
-    -- 2. Top Accent Border (NVIDIA Green)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H10&}", cfg.color_green))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1, y1, x2, y1 + math.floor(3 * scale))
-    ass:draw_stop()
-
-    -- 3. Header Block: Title & Detected GPU Model Subtitle
-    local cur_y = y1 + top_pad
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}NVIDIA HARDWARE MONITOR", 
-        x1 + pad_x, cur_y, cfg.font_face, title_size, cfg.color_green))
-
-    cur_y = cur_y + title_size + math.floor(4 * scale)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-        x1 + pad_x, cur_y, cfg.font_face, subtitle_size, cfg.color_white, stats.gpu_name))
-
-    -- Subtle Horizontal Divider under Header
-    cur_y = cur_y + subtitle_size + math.floor(8 * scale)
-    ass:new_event()
-    ass:append("{\\an7\\bord0\\shad0\\c&HFFFFFF&\\alpha&HD0&}")
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1 + pad_x, cur_y, x2 - pad_x, cur_y + 1)
-    ass:draw_stop()
-
-    cur_y = cur_y + math.floor(8 * scale)
-
-    -- 4. Render Categorized Sections (Unified Green Headers with Vector Diamond)
-    local d_rad = math.max(3, math.floor(3.5 * scale))
-    for s_idx, sec in ipairs(sections) do
-        local d_cx = x1 + pad_x + d_rad
-        local d_cy = cur_y + math.floor(section_size * 0.52)
-        local text_x = x1 + pad_x + (d_rad * 2) + math.floor(6 * scale)
-
-        -- Section Header Vector Diamond Icon
-        ass:new_event()
-        ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&}", sec.title_color or cfg.color_green))
-        ass:pos(0, 0)
-        ass:draw_start()
-        ass:move_to(d_cx, d_cy - d_rad)
-        ass:line_to(d_cx + d_rad, d_cy)
-        ass:line_to(d_cx, d_cy + d_rad)
-        ass:line_to(d_cx - d_rad, d_cy)
-        ass:draw_stop()
-
-        -- Section Header Title Tag
-        ass:new_event()
-        ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-            text_x, cur_y, cfg.font_face, section_size, sec.title_color or cfg.color_green, sec.title))
-
-        cur_y = cur_y + section_step
-
-        -- Section Item Rows (Indented for clean hierarchy)
-        for _, item in ipairs(sec.items) do
-            local label, val_text, val_color = item[1], item[2], item[3]
-
-            -- Label (Left-aligned + Indented: \an7)
-            ass:new_event()
-            ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b0\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x1 + pad_x + indent_x, cur_y, cfg.font_face, row_size, cfg.color_gray, label))
-
-            -- Value (Right-aligned: \an9)
-            ass:new_event()
-            ass:append(string.format("{\\an9\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x2 - pad_x, cur_y, cfg.font_face, row_size, val_color, val_text))
-
-            cur_y = cur_y + row_step
-        end
-
-        -- Spacing between sections
-        if s_idx < #sections then
-            cur_y = cur_y + section_gap
-        end
-    end
-
-    overlay.data = ass.text
-    overlay:update()
+    glass.draw(overlay, cfg, {
+        d = d, scale = scale,
+        title = "NVIDIA HARDWARE MONITOR",
+        subtitle = stats.gpu_name,
+        sections = sections,
+        anchor = "top-right",
+    })
 end
 
 -- Asynchronous polling routine (Non-blocking)
 local function poll_nvidia_smi()
-    if not is_enabled or is_fetching then return end
+    if not hud.enabled or is_fetching then return end
     is_fetching = true
 
     mp.command_native_async({
@@ -470,47 +318,26 @@ local function poll_nvidia_smi()
     end)
 end
 
--- Explicit state setter with inter-script tracking
-local function set_enabled(state)
-    is_enabled = state
-    mp.set_property_native("user-data/gpu-monitor-active", is_enabled)
-    if is_enabled then
-        check_windows_vrr()
-        draw_hud()
-        poll_nvidia_smi()
-        if not poll_timer then
-            poll_timer = mp.add_periodic_timer(cfg.poll_interval, poll_nvidia_smi)
-        end
-    else
-        if poll_timer then
-            poll_timer:kill()
-            poll_timer = nil
-        end
-        overlay:remove()
-    end
-end
-
--- Toggle overlay on/off individually
-local function toggle_overlay()
-    set_enabled(not is_enabled)
-end
+-- Enable/disable state, user-data flag, refresh timer and coalesced redraws
+hud = util.monitor({
+    overlay     = overlay,
+    draw        = draw_hud,
+    interval    = cfg.poll_interval,
+    user_data   = { "user-data/gpu-monitor-active" },
+    before_draw = check_windows_vrr,
+    after_draw  = poll_nvidia_smi,
+    tick        = poll_nvidia_smi,
+})
+local toggle_overlay = hud.toggle
 
 -- Keybindings and script messages
-mp.add_forced_key_binding("g", "toggle-gpu-monitor-forced", toggle_overlay)
+mp.add_forced_key_binding("n", "toggle-gpu-monitor-forced", toggle_overlay)
 mp.register_script_message("toggle-gpu-monitor", toggle_overlay)
 
-mp.register_script_message("set-gpu-monitor", function(val)
-    if val == "yes" or val == "true" or val == "on" or val == "1" then
-        set_enabled(true)
-    elseif val == "no" or val == "false" or val == "off" or val == "0" then
-        set_enabled(false)
-    else
-        toggle_overlay()
-    end
-end)
+mp.register_script_message("set-gpu-monitor", hud.switch)
 
-mp.observe_property("osd-dimensions", "native", draw_hud)
-mp.observe_property("pause", "bool", draw_hud)
-mp.observe_property("vf", "native", draw_hud)
-mp.observe_property("glsl-shaders", "native", draw_hud)
-mp.observe_property("scale", "string", draw_hud)
+mp.observe_property("osd-dimensions", "native", hud.request_redraw)
+mp.observe_property("pause", "bool", hud.request_redraw)
+mp.observe_property("vf", "native", hud.request_redraw)
+mp.observe_property("glsl-shaders", "native", hud.request_redraw)
+mp.observe_property("scale", "string", hud.request_redraw)

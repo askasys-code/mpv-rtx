@@ -7,21 +7,17 @@
 local mp = require("mp")
 local utils = require("mp.utils")
 local assdraw = require("mp.assdraw")
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local theme = require("dark-glass")
+local glass = require("glass-card")
+local util = require("suite-util")
 
 -- Visual Configuration & Styling (Matches suite monitors 1:1)
-local cfg = {
-    ui_scale        = 1.35,        -- User size multiplier (1.0 = normal, 1.35 = 4K, 1.6 = TV)
-    font_face       = "Segoe UI",
-    color_green     = "00E676",    -- NVIDIA Green (Headers, Progress, Active items)
-    color_cyan      = "00E5FF",    -- RivaTuner Cyan (Timestamps & Badges)
-    color_yellow    = "00C8FF",    -- Amber Warning (Volume & Durations)
-    color_red       = "3B3BFF",    -- Critical Red / Mute
-    color_white     = "FFFFFF",
-    color_gray      = "9E9E9E",    -- Inactive labels & descriptions
-    color_dark_box  = "1C1C1C",    -- Track & Selection highlights
-    bg_alpha        = "35",        -- Box transparency (Hex: 00-FF, 35 = ~80% dark)
+local cfg = theme.derive({
     autohide_delay  = 2.0,         -- Seconds of mouse inactivity before hiding
-}
+})
 
 local overlay = mp.create_osd_overlay("ass-events")
 local is_visible = false
@@ -95,22 +91,9 @@ local function request_render()
 end
 
 -- Format seconds into clean HH:MM:SS or MM:SS
-local function format_time(seconds)
-    if not seconds or seconds < 0 then return "00:00" end
-    local h = math.floor(seconds / 3600)
-    local m = math.floor((seconds % 3600) / 60)
-    local s = math.floor(seconds % 60)
-    if h > 0 then
-        return string.format("%d:%02d:%02d", h, m, s)
-    end
-    return string.format("%02d:%02d", m, s)
-end
+local format_time = util.format_time.auto
 
-local function truncate_string(str, max_len)
-    if not str then return "" end
-    if #str > max_len then return str:sub(1, max_len - 3) .. "..." end
-    return str
-end
+local truncate_string = util.truncate_string
 
 -- Resolve active video / image resolution badge
 local function get_resolution_badge()
@@ -121,8 +104,7 @@ local function get_resolution_badge()
     local src_h = mp.get_property_number("height", 0)
     if src_w <= 0 or src_h <= 0 then return nil, nil end
 
-    local vf_str = mp.get_property("vf") or ""
-    local has_vsr = vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia")
+    local has_vsr = util.has_vsr()
     local vop = mp.get_property_native("video-out-params")
     local vop_w = (vop and vop.w) and vop.w or src_w
     local vop_h = (vop and vop.h) and vop.h or src_h
@@ -135,47 +117,32 @@ local function get_resolution_badge()
 end
 
 -- Resolve active dynamic range state
+local DYNAMIC_RANGE_BADGES = {
+    truehdr = { "RTX TRUE HDR", "color_green" },
+    pq      = { "HDR10 (PQ)",   "color_cyan" },
+    hlg     = { "HDR (HLG)",    "color_cyan" },
+    bt2020  = { "BT.2020",      "color_cyan" },
+    sdr     = { "SDR",          "color_gray" },
+}
+
 local function get_dynamic_range_badge()
-    local vf_str = mp.get_property("vf") or ""
-    if vf_str:find("@truehdr") or vf_str:find("nvidia%-true%-hdr") then
-        return "RTX TRUE HDR", cfg.color_green
-    end
-
-    local gamma = mp.get_property("video-params/gamma") or ""
-    local sig_peak = mp.get_property_number("video-params/sig-peak", 1.0)
-    local colormatrix = mp.get_property("video-params/colormatrix") or ""
-
-    if gamma == "pq" then return "HDR10 (PQ)", cfg.color_cyan
-    elseif gamma == "hlg" then return "HDR (HLG)", cfg.color_cyan
-    elseif sig_peak > 1.05 or colormatrix:find("bt.2020") then return "BT.2020", cfg.color_cyan end
-
-    return "SDR", cfg.color_gray
+    local entry = DYNAMIC_RANGE_BADGES[util.dynamic_range_kind(1.05)]
+    return entry[1], cfg[entry[2]]
 end
 
 -- Resolve active upscaler engine
+local UPSCALER_BADGES = {
+    vsr  = { "RTX VSR", "color_green" },
+    nis  = { "NIS",     "color_cyan" },
+    fsr  = { "FSR 1.0", "color_cyan" },
+    sgsr = { "SGSR",    "color_cyan" },
+    cas  = { "CAS",     "color_cyan" },
+    glsl = { "GLSL",    "color_cyan" },
+}
+
 local function get_active_upscaler_badge()
-    local vf_str = mp.get_property("vf") or ""
-    if vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia") then
-        return "RTX VSR", cfg.color_green
-    end
-
-    local raw_shaders = mp.get_property_native("glsl-shaders") or {}
-    local shaders = {}
-    for _, s in ipairs(raw_shaders) do
-        if type(s) == "string" and s:match("%S") then
-            table.insert(shaders, s)
-        end
-    end
-
-    if #shaders > 0 then
-        for _, s in ipairs(shaders) do
-            if s:find("NVScaler") then return "NIS", cfg.color_cyan end
-            if s:find("FSR") then return "FSR 1.0", cfg.color_cyan end
-            if s:find("SGSR") then return "SGSR", cfg.color_cyan end
-            if s:find("CAS") then return "CAS", cfg.color_cyan end
-        end
-        return "GLSL", cfg.color_cyan
-    end
+    local entry = UPSCALER_BADGES[util.upscaler_kind() or ""]
+    if entry then return entry[1], cfg[entry[2]] end
 
     local base_scale = (mp.get_property("scale") or "LANCZOS"):upper()
     return base_scale, cfg.color_gray
@@ -279,14 +246,8 @@ draw_bar = function()
         return
     end
 
-    local d = mp.get_property_native("osd-dimensions")
-    if not d or d.w == 0 or d.h == 0 then return end
-
-    overlay.res_x = d.w
-    overlay.res_y = d.h
-
-    local base_scale = math.max(1.0, d.h / 1080)
-    local scale = base_scale * (cfg.ui_scale or 1.0)
+    local d, scale = glass.begin_frame(overlay, cfg)
+    if not d then return end
 
     -- Bar Geometry (Floating at bottom center)
     local pad_x = math.floor(20 * scale)
@@ -356,10 +317,7 @@ draw_bar = function()
     local hw_tag = (hwdec ~= "" and hwdec ~= "no") and "HW" or "SW"
     local hw_col = (hwdec ~= "" and hwdec ~= "no") and cfg.color_green or cfg.color_gray
 
-    local vc = tostring(mp.get_property("video-codec") or mp.get_property("video-format") or ""):lower()
-    local is_av1 = vc:find("av1") ~= nil
-    local vf_str = mp.get_property("vf") or ""
-    local is_fgs_stripped = vf_str:find("@filmgrain") or vf_str:find("film%-grain=no")
+    local is_fgs_stripped = util.fgs_stripped()
 
     local badge_parts = {}
     if res_tag then
@@ -367,16 +325,16 @@ draw_bar = function()
     end
     table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", hw_col, hw_tag))
 
-    -- Dynamic AV1 FGS or Universal H.264 Grain Badge
-    if is_av1 then
-        local fgs_tag = is_fgs_stripped and "FGS: OFF" or "FGS: ON"
-        local fgs_col = is_fgs_stripped and cfg.color_yellow or cfg.color_green
-        table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", fgs_col, fgs_tag))
-    else
-        local syn_tag = mp.get_property("user-data/film-grain-tag")
-        if syn_tag and syn_tag ~= "" and syn_tag ~= "OFF" then
-            table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", cfg.color_green, syn_tag))
-        end
+    -- Grain badges (shown only when active, never guessed):
+    --   [AV1 FGS OFF]      native AV1 film grain synthesis stripped by the user
+    --   [GPU GRAIN LIGHT]  synthetic GPU grain preset (LIGHT / MEDIUM / HEAVY), any codec
+    if is_fgs_stripped then
+        table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", cfg.color_yellow, "AV1 FGS OFF"))
+    end
+    -- Native read: get_property would return the JSON-quoted string ("OFF" with quotes)
+    local syn_tag = mp.get_property_native("user-data/film-grain-tag")
+    if type(syn_tag) == "string" and syn_tag ~= "" and syn_tag ~= "OFF" then
+        table.insert(badge_parts, string.format("{\\c&H%s&}[GPU GRAIN %s]", cfg.color_green, syn_tag:upper()))
     end
 
     table.insert(badge_parts, string.format("{\\c&H%s&}[%s]", upscaler_col, upscaler_tag))
@@ -1096,6 +1054,7 @@ mp.observe_property("playlist-pos-1", "number", function() if is_visible then re
 -- Instant Reactive Badges (Zero overhead: fires ONLY on keypress)
 mp.observe_property("glsl-shaders", "native", function() if is_visible then request_render() end end)
 mp.observe_property("vf", "native", function() if is_visible then request_render() end end)
+mp.observe_property("user-data/film-grain-tag", "native", function() if is_visible then request_render() end end)
 mp.observe_property("scale", "string", function() if is_visible then request_render() end end)
 mp.observe_property("hwdec-current", "string", function() if is_visible then request_render() end end)
 mp.observe_property("width", "number", function() if is_visible then request_render() end end)

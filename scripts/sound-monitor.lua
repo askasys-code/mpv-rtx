@@ -6,33 +6,25 @@
 
 local mp = require("mp")
 local utils = require("mp.utils")
-local assdraw = require("mp.assdraw")
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local theme = require("dark-glass")
+local glass = require("glass-card")
+local util = require("suite-util")
 
-local is_enabled = false
+local hud -- monitor controller (created below)
 local is_internal_af = false
-local poll_timer = nil
 
 -- Visual Configuration & Styling (Matches video-monitor & nvidia-monitor palette)
-local cfg = {
-    ui_scale        = 1.35,        -- User size multiplier (1.0 = normal, 1.35 = 4K recommended, 1.6 = TV)
+local cfg = theme.derive({
     poll_interval   = 0.5,         -- Refresh interval in seconds
-    font_face       = "Segoe UI",
-    color_green     = "00E676",    -- NVIDIA Green (Headers, Active Upmix & Sync)
-    color_cyan      = "00E5FF",    -- RivaTuner Cyan (Native Active Channels & Formats)
-    color_yellow    = "00C8FF",    -- Amber Warning (Bitrates, Output device & Buffer)
-    color_red       = "3B3BFF",    -- Critical Red / Mute
-    color_white     = "FFFFFF",
-    color_gray      = "9E9E9E",
-    color_dark_box  = "1C1C1C",    -- Inactive Speaker Slot Background
-    bg_alpha        = "35",        -- Glass backdrop opacity (Hex: 00-FF, 35 = ~80% dark)
-}
+})
 
 local overlay = mp.create_osd_overlay("ass-events")
 
 -- Dispatch Dark Glass Toast notifications via custom-notify.lua
-local function toast(title, msg, color, duration)
-    mp.commandv("script-message", "notify", title, msg, color or "green", tostring(duration or 2))
-end
+local toast = util.toast
 
 -- =========================================================================
 -- Curated Studio Headphone DSP Presets Suite (Default: Bypass / OFF)
@@ -184,14 +176,7 @@ local function format_sample_rate_full(sr)
 end
 
 -- Format bitrates into clean Mbps / kbps
-local function format_bitrate(bps)
-    if not bps or bps <= 0 then return "N/A" end
-    if bps >= 1000000 then
-        return string.format("%.2f Mbps", bps / 1000000)
-    else
-        return string.format("%d kbps", math.floor(bps / 1000 + 0.5))
-    end
-end
+local format_bitrate = util.format_bitrate
 
 -- Build layout-adaptive FFmpeg isolation filter
 local function get_adaptive_solo_filter(mode_id, layout)
@@ -319,18 +304,9 @@ end
 -- Helper Utilities & Audio Telemetry Resolvers
 -- =========================================================================
 
-local function truncate_string(str, max_len)
-    if not str then return "" end
-    if #str > max_len then return str:sub(1, max_len - 3) .. "..." end
-    return str
-end
+local truncate_string = util.truncate_string
 
-local function format_time(seconds)
-    if not seconds or seconds < 0 then return "00:00" end
-    local m = math.floor(seconds / 60)
-    local s = math.floor(seconds % 60)
-    return string.format("%02d:%02d", m, s)
-end
+local format_time = util.format_time.mmss
 
 local function get_meta_tag(keys)
     local meta = mp.get_property_native("metadata")
@@ -396,20 +372,13 @@ end
 -- =========================================================================
 
 draw_hud = function()
-    if not is_enabled then
+    if not hud.enabled then
         overlay:remove()
         return
     end
 
-    local d = mp.get_property_native("osd-dimensions")
-    if not d or d.w == 0 or d.h == 0 then return end
-
-    overlay.res_x = d.w
-    overlay.res_y = d.h
-
-    -- Base DPI scaling combined with user multiplier
-    local base_scale = math.max(1.0, d.h / 1080)
-    local scale = base_scale * (cfg.ui_scale or 1.0)
+    local d, scale = glass.begin_frame(overlay, cfg)
+    if not d then return end
 
     -- Check if actual audio stream exists
     local atrack = mp.get_property_native("current-tracks/audio")
@@ -538,111 +507,14 @@ draw_hud = function()
         { title = "METADATA", items = meta_items }
     }
 
-    -- ---------------- Spacing & Geometric Dimensions ----------------
-    local title_size    = math.floor(13 * scale)
-    local subtitle_size = math.floor(11.5 * scale)
-    local section_size  = math.floor(10.5 * scale)
-    local row_size      = math.floor(11.5 * scale)
-
-    local row_step      = math.floor(19.5 * scale)
-    local section_step  = math.floor(18 * scale)
-    local section_gap   = math.floor(10 * scale)
-
-    local top_pad       = math.floor(16 * scale)
-    local header_gap    = math.floor(10 * scale)
-    local bottom_pad    = math.floor(20 * scale)
-    local pad_x         = math.floor(20 * scale)
-    local indent_x      = math.floor(8 * scale)
-
     -- 3-Row Surround Matrix Geometry (Strictly 3 Columns)
     local spk_h         = math.floor(19 * scale)
     local spk_gap_y     = math.floor(5 * scale)
     local matrix_h      = (3 * spk_h) + (2 * spk_gap_y)
     local matrix_gap    = math.floor(12 * scale)
 
-    -- Dynamic Height Calculation
-    local total_rows = 0
-    for _, sec in ipairs(sections) do total_rows = total_rows + #sec.items end
-
-    local header_h = title_size + subtitle_size + math.floor(8 * scale)
-    local matrix_total_h = section_step + matrix_h + matrix_gap
-    local sections_h = (#sections * section_step) + ((#sections - 1) * section_gap) + (total_rows * row_step)
-    local box_h = top_pad + header_h + header_gap + matrix_total_h + sections_h + bottom_pad
-    
-    -- Symmetrical 400px width (Matches video-monitor & nvidia-monitor)
-    local box_w = math.floor(400 * scale)
-
-    local margin_y = math.floor(24 * scale)
-    local x1 = math.floor((d.w - box_w) / 2)
-    local x2 = x1 + box_w
-    local y1 = margin_y
-    local y2 = y1 + box_h
-
-    local ass = assdraw.ass_new()
-
-    -- 1. Outer Translucent Glass Container
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H0A0A0A&\\alpha&H%s&}", cfg.bg_alpha))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:round_rect_cw(x1, y1, x2, y2, 8 * scale)
-    ass:draw_stop()
-
-    -- 2. Top Accent Border (NVIDIA Green)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H10&}", cfg.color_green))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1, y1, x2, y1 + math.floor(3 * scale))
-    ass:draw_stop()
-
-    -- 3. Header Title & Active Track Name Subtitle
-    local cur_y = y1 + top_pad
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}AUDIO MONITOR", 
-        x1 + pad_x, cur_y, cfg.font_face, title_size, cfg.color_green))
-
-    cur_y = cur_y + title_size + math.floor(4 * scale)
-    local clean_track_title = truncate_string(artist .. " — " .. title, 42)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-        x1 + pad_x, cur_y, cfg.font_face, subtitle_size, cfg.color_white, clean_track_title))
-
-    -- Subtle Horizontal Divider under Header
-    cur_y = cur_y + subtitle_size + math.floor(8 * scale)
-    ass:new_event()
-    ass:append("{\\an7\\bord0\\shad0\\c&HFFFFFF&\\alpha&HD0&}")
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1 + pad_x, cur_y, x2 - pad_x, cur_y + 1)
-    ass:draw_stop()
-
-    cur_y = cur_y + math.floor(10 * scale)
-
-    -- 4. Speaker Section Header (Vector Diamond Icon)
-    local d_rad = math.max(3, math.floor(3.5 * scale))
-    local d_cx = x1 + pad_x + d_rad
-    local d_cy = cur_y + math.floor(section_size * 0.52)
-    local text_x = x1 + pad_x + (d_rad * 2) + math.floor(6 * scale)
-
     local matrix_title = has_audio and (current_solo_idx > 1 and "SPEAKER [SOLO]" or "SPEAKER") or "SPEAKER [STANDBY]"
     local matrix_color = has_audio and (current_solo_idx > 1 and cfg.color_yellow or cfg.color_green) or cfg.color_gray
-
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&}", matrix_color))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:move_to(d_cx, d_cy - d_rad)
-    ass:line_to(d_cx + d_rad, d_cy)
-    ass:line_to(d_cx, d_cy + d_rad)
-    ass:line_to(d_cx - d_rad, d_cy)
-    ass:draw_stop()
-
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-        text_x, cur_y, cfg.font_face, section_size, matrix_color, matrix_title))
-
-    cur_y = cur_y + section_step
 
     -- 5. Draw Real-time Speaker Matrix (Max 3 Columns, Physical Layout)
     local spk_grid = {
@@ -679,116 +551,70 @@ draw_hud = function()
         return (spk_id == "FL" or spk_id == "FR")
     end
 
-    local avail_w = (x2 - pad_x) - (x1 + pad_x)
-    local spk_gap_x = math.floor(10 * scale)
-    local spk_w = math.floor((avail_w - (spk_gap_x * 2)) / 3)
+    glass.draw(overlay, cfg, {
+        d = d, scale = scale,
+        title = "AUDIO MONITOR",
+        subtitle = truncate_string(artist .. " — " .. title, 42),
+        sections = sections,
+        anchor = "top-center",
+        header_gap = 10, bottom_pad = 20, pad_x = 20, divider_gap = 10,
+        block = {
+            height = function(g) return g.section_step + matrix_h + matrix_gap end,
+            draw = function(ass, g, x1, x2, cur_y)
+                -- Speaker Section Header (Vector Diamond Icon)
+                glass.section_header(ass, cfg, g, x1, cur_y, matrix_title, matrix_color)
+                cur_y = cur_y + g.section_step
 
-    for r_idx, row in ipairs(spk_grid) do
-        local ry = cur_y + (r_idx - 1) * (spk_h + spk_gap_y)
-        for c_idx = 1, 3 do
-            local spk = row[c_idx]
-            if spk then
-                local rx = (x1 + pad_x) + (c_idx - 1) * (spk_w + spk_gap_x)
-                local active = is_spk_active(spk.id)
+                -- Real-time Speaker Matrix
+        local avail_w = (x2 - g.pad_x) - (x1 + g.pad_x)
+        local spk_gap_x = math.floor(10 * scale)
+        local spk_w = math.floor((avail_w - (spk_gap_x * 2)) / 3)
 
-                ass:new_event()
-                ass:pos(0, 0)
-                ass:draw_start()
-                if active then
-                    local bg_col = (current_solo_idx > 1) and cfg.color_yellow or ((current_dsp_idx == 2) and cfg.color_green or cfg.color_cyan)
-                    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H40&}", bg_col))
-                    ass:round_rect_cw(rx, ry, rx + spk_w, ry + spk_h, 4 * scale)
-                else
-                    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H90&}", cfg.color_dark_box))
-                    ass:round_rect_cw(rx, ry, rx + spk_w, ry + spk_h, 4 * scale)
+        for r_idx, row in ipairs(spk_grid) do
+            local ry = cur_y + (r_idx - 1) * (spk_h + spk_gap_y)
+            for c_idx = 1, 3 do
+                local spk = row[c_idx]
+                if spk then
+                    local rx = (x1 + g.pad_x) + (c_idx - 1) * (spk_w + spk_gap_x)
+                    local active = is_spk_active(spk.id)
+
+                    ass:new_event()
+                    ass:pos(0, 0)
+                    ass:draw_start()
+                    if active then
+                        local bg_col = (current_solo_idx > 1) and cfg.color_yellow or ((current_dsp_idx == 2) and cfg.color_green or cfg.color_cyan)
+                        ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H40&}", bg_col))
+                        ass:round_rect_cw(rx, ry, rx + spk_w, ry + spk_h, 4 * scale)
+                    else
+                        ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H90&}", cfg.color_dark_box))
+                        ass:round_rect_cw(rx, ry, rx + spk_w, ry + spk_h, 4 * scale)
+                    end
+                    ass:draw_stop()
+
+                    local text_color = active and cfg.color_white or cfg.color_gray
+                    local font_weight = active and "\\b1" or "\\b0"
+                    local lbl_fs = math.floor(9.5 * scale)
+                    ass:new_event()
+                    ass:append(string.format("{\\an5\\pos(%d,%d)\\fn%s%s\\fs%d\\c&H%s&\\bord0\\shad0}%s", 
+                        rx + math.floor(spk_w / 2), ry + math.floor(spk_h / 2), cfg.font_face, font_weight, lbl_fs, text_color, spk.label))
                 end
-                ass:draw_stop()
-
-                local text_color = active and cfg.color_white or cfg.color_gray
-                local font_weight = active and "\\b1" or "\\b0"
-                local lbl_fs = math.floor(9.5 * scale)
-                ass:new_event()
-                ass:append(string.format("{\\an5\\pos(%d,%d)\\fn%s%s\\fs%d\\c&H%s&\\bord0\\shad0}%s", 
-                    rx + math.floor(spk_w / 2), ry + math.floor(spk_h / 2), cfg.font_face, font_weight, lbl_fs, text_color, spk.label))
             end
         end
-    end
 
-    cur_y = cur_y + matrix_h + matrix_gap
-
-    -- 6. Render Categorized Telemetry Sections (Unified Green Vector Headers)
-    for s_idx, sec in ipairs(sections) do
-        local scx = x1 + pad_x + d_rad
-        local scy = cur_y + math.floor(section_size * 0.52)
-        local stx = x1 + pad_x + (d_rad * 2) + math.floor(6 * scale)
-
-        ass:new_event()
-        ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&}", cfg.color_green))
-        ass:pos(0, 0)
-        ass:draw_start()
-        ass:move_to(scx, scy - d_rad)
-        ass:line_to(scx + d_rad, scy)
-        ass:line_to(scx, scy + d_rad)
-        ass:line_to(scx - d_rad, scy)
-        ass:draw_stop()
-
-        ass:new_event()
-        ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-            stx, cur_y, cfg.font_face, section_size, cfg.color_green, sec.title))
-
-        cur_y = cur_y + section_step
-
-        for _, item in ipairs(sec.items) do
-            local label, val_text, val_color = item[1], item[2], item[3]
-
-            ass:new_event()
-            ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b0\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x1 + pad_x + indent_x, cur_y, cfg.font_face, row_size, cfg.color_gray, label))
-
-            ass:new_event()
-            ass:append(string.format("{\\an9\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x2 - pad_x, cur_y, cfg.font_face, row_size, val_color, val_text))
-
-            cur_y = cur_y + row_step
-        end
-
-        if s_idx < #sections then
-            cur_y = cur_y + section_gap
-        end
-    end
-
-    overlay.data = ass.text
-    overlay:update()
+            end
+        }
+    })
 end
 
--- Refresh loop
-local function update_loop()
-    if is_enabled then
-        draw_hud()
-    end
-end
-
--- State management
-local function set_enabled(state)
-    is_enabled = state
-    mp.set_property_native("user-data/sound-monitor-active", is_enabled)
-    if is_enabled then
-        draw_hud()
-        if not poll_timer then
-            poll_timer = mp.add_periodic_timer(cfg.poll_interval, update_loop)
-        end
-    else
-        if poll_timer then
-            poll_timer:kill()
-            poll_timer = nil
-        end
-        overlay:remove()
-    end
-end
-
-local function toggle_hud()
-    set_enabled(not is_enabled)
-end
+-- Enable/disable state, user-data flag, refresh timer and coalesced redraws
+hud = util.monitor({
+    overlay   = overlay,
+    draw      = draw_hud,
+    interval  = cfg.poll_interval,
+    user_data = { "user-data/sound-monitor-active" },
+})
+local set_enabled = hud.set
+local toggle_hud = hud.toggle
 
 -- =========================================================================
 -- Script Messages & Handlers
@@ -839,14 +665,14 @@ mp.observe_property("af", "string", function(_, val)
         current_solo_idx = 1
         current_bass_idx = 1
     end
-    if draw_hud then draw_hud() end
+    hud.request_redraw()
 end)
 
 -- Reactive property observers
-mp.observe_property("osd-dimensions", "native", draw_hud)
-mp.observe_property("pause", "bool", draw_hud)
-mp.observe_property("volume", "number", draw_hud)
-mp.observe_property("mute", "bool", draw_hud)
-mp.observe_property("audio-params", "native", draw_hud)
-mp.observe_property("audio-out-params", "native", draw_hud)
-mp.observe_property("audio-bitrate", "number", draw_hud)
+mp.observe_property("osd-dimensions", "native", hud.request_redraw)
+mp.observe_property("pause", "bool", hud.request_redraw)
+mp.observe_property("volume", "number", hud.request_redraw)
+mp.observe_property("mute", "bool", hud.request_redraw)
+mp.observe_property("audio-params", "native", hud.request_redraw)
+mp.observe_property("audio-out-params", "native", hud.request_redraw)
+mp.observe_property("audio-bitrate", "number", hud.request_redraw)

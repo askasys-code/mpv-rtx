@@ -4,30 +4,26 @@
 -- Fully Synchronized & Stateless Filter Controller
 -- =========================================================================
 
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local util = require("suite-util")
+
 local vsr_label = "@vsr"
 local format_label = "@vsr_fmt"
 
 -- Inspect the active filter chain to determine if VSR is currently engaged
 local function is_vsr_active()
-    local vf_str = mp.get_property("vf") or ""
-    return vf_str:find(vsr_label, 1, true) ~= nil
+    return util.vf_has(vsr_label)
 end
 
 -- Safely remove existing VSR filter instance and formatting helpers
 local function remove_vsr_filter()
-    local vf_str = mp.get_property("vf") or ""
-    if vf_str:find(vsr_label, 1, true) ~= nil then
-        mp.commandv("vf", "remove", vsr_label)
-    end
-    if vf_str:find(format_label, 1, true) ~= nil then
-        mp.commandv("vf", "remove", format_label)
-    end
+    util.vf_remove(vsr_label, format_label)
 end
 
 -- Helper to dispatch modern Dark Glass toasts
-local function toast(title, msg, color, duration)
-    mp.commandv("script-message", "notify", title, msg, color or "green", tostring(duration or 2))
-end
+local toast = util.toast
 
 -- Determine active viewport resolution (Fullscreen display vs Windowed inner video area)
 local function get_target_resolution()
@@ -61,17 +57,7 @@ end
 
 -- Check if pixel format is compatible with RTX VSR hardware (8-bit and 10-bit YUV 4:2:0)
 local function is_format_supported(pixfmt)
-    if not pixfmt then return false end
-    local clean_fmt = tostring(pixfmt):lower():match("^%s*(.-)%s*$")
-    local valid_formats = {
-        ["nv12"]        = true,
-        ["yuv420p"]     = true,
-        ["p010"]        = true,
-        ["p010le"]      = true,
-        ["yuv420p10le"] = true,
-        ["d3d11"]       = true,
-    }
-    return valid_formats[clean_fmt] or false
+    return util.is_rtx_pixfmt(pixfmt, true)
 end
 
 -- Main toggle and scale calculation engine

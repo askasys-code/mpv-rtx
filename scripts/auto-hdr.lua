@@ -1,47 +1,32 @@
---- START OF FILE mpv/scripts/auto-hdr.lua ---
-
 -- =========================================================================
 -- NVIDIA RTX Video True HDR Controller for MPV
 -- Prevents double tone-mapping on native HDR and handles SDR-to-HDR cleanly
 -- Universal Support: Moving Videos & High-Resolution Still Images
 -- =========================================================================
 
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local util = require("suite-util")
+
 local hdr_label = "@truehdr"
 local fmt_label = "@truehdr_fmt"
 
-local function toast(title, msg, color, duration)
-    mp.commandv("script-message", "notify", title, msg, color or "green", tostring(duration or 2))
-end
+local toast = util.toast
 
 -- Inspect video filter pipeline to determine if True HDR is currently active
 local function is_hdr_active()
-    local vf_str = mp.get_property("vf") or ""
-    return vf_str:find(hdr_label, 1, true) ~= nil
+    return util.vf_has(hdr_label)
 end
 
 -- Safely remove existing True HDR filter instance and format converter
 local function remove_hdr_filter()
-    local vf_str = mp.get_property("vf") or ""
-    if vf_str:find(hdr_label, 1, true) ~= nil then
-        mp.commandv("vf", "remove", hdr_label)
-    end
-    if vf_str:find(fmt_label, 1, true) ~= nil then
-        mp.commandv("vf", "remove", fmt_label)
-    end
+    util.vf_remove(hdr_label, fmt_label)
 end
 
 -- Check if pixel format is directly accepted by D3D11VPP True HDR
 local function is_format_supported(pixfmt)
-    if not pixfmt then return false end
-    local clean_fmt = tostring(pixfmt):lower():match("^%s*(.-)%s*$")
-    local valid_formats = {
-        ["nv12"]        = true,
-        ["yuv420p"]     = true,
-        ["p010"]        = true,
-        ["p010le"]      = true,
-        ["yuv420p10le"] = true,
-    }
-    return valid_formats[clean_fmt] or false
+    return util.is_rtx_pixfmt(pixfmt)
 end
 
 -- Inspect video metadata to determine if content is already native HDR

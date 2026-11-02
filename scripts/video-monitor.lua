@@ -5,44 +5,27 @@
 
 local mp = require("mp")
 local utils = require("mp.utils")
-local assdraw = require("mp.assdraw")
+-- Shared modules: <config>/script-modules/ (resolved from this script's folder, works in portable_config)
+package.path = ((debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*)[/\\][^/\\]*$") or ".") .. "/../script-modules/?.lua;"
+    .. (mp.command_native({ "expand-path", "~~/script-modules/?.lua" }) or "") .. ";" .. package.path
+local theme = require("dark-glass")
+local glass = require("glass-card")
+local util = require("suite-util")
 
-local is_enabled = false
-local poll_timer = nil
+local hud -- monitor controller (created below)
 
 -- Visual Configuration & Styling (Matches sound-monitor & nvidia-monitor palette)
-local cfg = {
-    ui_scale        = 1.35,        -- User size multiplier (1.0 = normal, 1.35 = 4K recommended, 1.6 = TV)
+local cfg = theme.derive({
     poll_interval   = 0.5,         -- Refresh interval while visible (seconds)
-    font_face       = "Segoe UI",
-    color_green     = "00E676",    -- NVIDIA Green (Headers & Active Enhancements)
-    color_cyan      = "00E5FF",    -- RivaTuner Cyan (Codecs, Resolutions & Formats)
-    color_yellow    = "00C8FF",    -- Amber Warning (Bitrates & Color Gamut)
-    color_red       = "3B3BFF",    -- Critical Red
-    color_white     = "FFFFFF",
-    color_gray      = "9E9E9E",
-    bg_alpha        = "35",        -- Box transparency (Hex: 00-FF, 35 = ~80% dark)
-}
+})
 
 local overlay = mp.create_osd_overlay("ass-events")
 
 -- Format seconds into clean HH:MM:SS
-local function format_time(seconds)
-    if not seconds or seconds < 0 then return "00:00:00" end
-    local h = math.floor(seconds / 3600)
-    local m = math.floor((seconds % 3600) / 60)
-    local s = math.floor(seconds % 60)
-    return string.format("%02d:%02d:%02d", h, m, s)
-end
+local format_time = util.format_time.hms
 
 -- Truncate long strings with ellipsis for compact display
-local function truncate_string(str, max_len)
-    if not str then return "" end
-    if #str > max_len then
-        return str:sub(1, max_len - 3) .. "..."
-    end
-    return str
-end
+local truncate_string = util.truncate_string
 
 -- Clean container / demuxer format representation
 local function format_clean_container(raw_fmt)
@@ -102,14 +85,7 @@ local function format_clean_gamma(g)
 end
 
 -- Format bitrates into clean Mbps / kbps
-local function format_bitrate(bps)
-    if not bps or bps <= 0 then return "N/A" end
-    if bps >= 1000000 then
-        return string.format("%.2f Mbps", bps / 1000000)
-    else
-        return string.format("%d kbps", math.floor(bps / 1000 + 0.5))
-    end
-end
+local format_bitrate = util.format_bitrate
 
 -- Resolve dynamic effective resolution (Detects active RTX VSR & GLSL upscalers in real-time)
 local function get_resolution_info()
@@ -121,8 +97,7 @@ local function get_resolution_info()
     local out_h = src_h
 
     -- Check hardware RTX VSR / d3d11vpp video filters
-    local vf_str = mp.get_property("vf") or ""
-    local has_vsr = vf_str:find("@vsr") or vf_str:find("scaling%-mode=nvidia")
+    local has_vsr = util.has_vsr()
 
     local vop = mp.get_property_native("video-out-params")
     local vop_w = (vop and vop.w) and vop.w or src_w
@@ -262,8 +237,7 @@ local function get_diagnostics_data()
     local clean_gamma = format_clean_gamma(gamma)
 
     -- Dynamic RTX True HDR Detection (Color space & transfer curve progression)
-    local vf_str = mp.get_property("vf") or ""
-    local has_truehdr = vf_str:find("@truehdr") or vf_str:find("nvidia%-true%-hdr")
+    local has_truehdr = util.has_truehdr()
 
     local gamut_col = cfg.color_yellow
     local gamma_col = cfg.color_yellow
@@ -275,18 +249,13 @@ local function get_diagnostics_data()
         gamma_col = cfg.color_green
     end
 
-    -- AV1 Film Grain Synthesis Detection
-    local is_av1 = clean_codec:find("AV1") ~= nil
+    -- AV1 Film Grain: only report what is known (stream is never inspected)
+    -- Stripped / OFF only when the native-FGS strip filter is active, otherwise N/A
     local grain_str = "N/A"
     local grain_col = cfg.color_gray
-    if is_av1 then
-        if vf_str:find("@filmgrain") or vf_str:find("film%-grain=no") then
-            grain_str = "Stripped / OFF"
-            grain_col = cfg.color_yellow
-        else
-            grain_str = "Active (FGS GPU)"
-            grain_col = cfg.color_green
-        end
+    if util.fgs_stripped() then
+        grain_str = "Stripped / OFF"
+        grain_col = cfg.color_yellow
     end
 
     return {
@@ -314,20 +283,13 @@ end
 
 -- Render ASS Video Diagnostics Box
 local function draw_hud()
-    if not is_enabled then
+    if not hud.enabled then
         overlay:remove()
         return
     end
 
-    local d = mp.get_property_native("osd-dimensions")
-    if not d or d.w == 0 or d.h == 0 then return end
-
-    overlay.res_x = d.w
-    overlay.res_y = d.h
-
-    -- Base DPI scaling combined with user multiplier
-    local base_scale = math.max(1.0, d.h / 1080)
-    local scale = base_scale * (cfg.ui_scale or 1.0)
+    local d, scale = glass.begin_frame(overlay, cfg)
+    if not d then return end
 
     local data = get_diagnostics_data()
 
@@ -336,164 +298,24 @@ local function draw_hud()
         { title = "VIDEO", items = data.video_items }
     }
 
-    -- Font Sizes & Geometric Spacing
-    local title_size    = math.floor(13 * scale)
-    local subtitle_size = math.floor(11.5 * scale)
-    local section_size  = math.floor(10.5 * scale)
-    local row_size      = math.floor(11.5 * scale)
-
-    local row_step      = math.floor(19.5 * scale)
-    local section_step  = math.floor(18 * scale)
-    local section_gap   = math.floor(10 * scale)
-
-    local top_pad       = math.floor(16 * scale)
-    local header_gap    = math.floor(12 * scale)
-    local bottom_pad    = math.floor(22 * scale)
-    local pad_x         = math.floor(18 * scale)
-    local indent_x      = math.floor(8 * scale)
-
-    -- Dynamic Auto-Fit Height Calculation
-    local total_rows = 0
-    for _, sec in ipairs(sections) do
-        total_rows = total_rows + #sec.items
-    end
-
-    local header_h = title_size + subtitle_size + math.floor(8 * scale)
-    local sections_h = (#sections * section_step) + ((#sections - 1) * section_gap) + (total_rows * row_step)
-    local box_h = top_pad + header_h + header_gap + sections_h + bottom_pad
-    local box_w = math.floor(400 * scale) -- Symmetrical 400px width
-
-    -- Coordinate placement: Top-Left
-    local margin_x = math.floor(24 * scale)
-    local margin_y = math.floor(24 * scale)
-    local x1 = margin_x
-    local x2 = x1 + box_w
-    local y1 = margin_y
-    local y2 = y1 + box_h
-
-    local ass = assdraw.ass_new()
-
-    -- 1. Outer Translucent Rounded Glass Container
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H0A0A0A&\\alpha&H%s&}", cfg.bg_alpha))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:round_rect_cw(x1, y1, x2, y2, 8 * scale)
-    ass:draw_stop()
-
-    -- 2. Top Accent Border (NVIDIA Green)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&\\alpha&H10&}", cfg.color_green))
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1, y1, x2, y1 + math.floor(3 * scale))
-    ass:draw_stop()
-
-    -- 3. Header Title & Truncated Media Name Subtitle
-    local cur_y = y1 + top_pad
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}VIDEO MONITOR", 
-        x1 + pad_x, cur_y, cfg.font_face, title_size, cfg.color_green))
-
-    cur_y = cur_y + title_size + math.floor(4 * scale)
-    local clean_title = truncate_string(data.filename, 38)
-    ass:new_event()
-    ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-        x1 + pad_x, cur_y, cfg.font_face, subtitle_size, cfg.color_white, clean_title))
-
-    -- Subtle Horizontal Divider under Header
-    cur_y = cur_y + subtitle_size + math.floor(8 * scale)
-    ass:new_event()
-    ass:append("{\\an7\\bord0\\shad0\\c&HFFFFFF&\\alpha&HD0&}")
-    ass:pos(0, 0)
-    ass:draw_start()
-    ass:rect_cw(x1 + pad_x, cur_y, x2 - pad_x, cur_y + 1)
-    ass:draw_stop()
-
-    cur_y = cur_y + math.floor(8 * scale)
-
-    -- 4. Render Categorized Sections (Unified Green Headers with Vector Diamond)
-    local d_rad = math.max(3, math.floor(3.5 * scale))
-    for s_idx, sec in ipairs(sections) do
-        local d_cx = x1 + pad_x + d_rad
-        local d_cy = cur_y + math.floor(section_size * 0.52)
-        local text_x = x1 + pad_x + (d_rad * 2) + math.floor(6 * scale)
-
-        -- Section Header Vector Diamond Icon
-        ass:new_event()
-        ass:append(string.format("{\\an7\\bord0\\shad0\\c&H%s&}", cfg.color_green))
-        ass:pos(0, 0)
-        ass:draw_start()
-        ass:move_to(d_cx, d_cy - d_rad)
-        ass:line_to(d_cx + d_rad, d_cy)
-        ass:line_to(d_cx, d_cy + d_rad)
-        ass:line_to(d_cx - d_rad, d_cy)
-        ass:draw_stop()
-
-        -- Section Header Title Tag
-        ass:new_event()
-        ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-            text_x, cur_y, cfg.font_face, section_size, cfg.color_green, sec.title))
-
-        cur_y = cur_y + section_step
-
-        -- Section Item Rows (Indented for visual hierarchy)
-        for _, item in ipairs(sec.items) do
-            local label, val_text, val_color = item[1], item[2], item[3]
-
-            -- Label (Left-aligned + Indented: \an7)
-            ass:new_event()
-            ass:append(string.format("{\\an7\\pos(%d,%d)\\fn%s\\b0\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x1 + pad_x + indent_x, cur_y, cfg.font_face, row_size, cfg.color_gray, label))
-
-            -- Value (Right-aligned: \an9)
-            ass:new_event()
-            ass:append(string.format("{\\an9\\pos(%d,%d)\\fn%s\\b1\\fs%d\\c&H%s&\\bord1\\3c&H000000&\\shad1}%s", 
-                x2 - pad_x, cur_y, cfg.font_face, row_size, val_color, val_text))
-
-            cur_y = cur_y + row_step
-        end
-
-        -- Spacing between sections
-        if s_idx < #sections then
-            cur_y = cur_y + section_gap
-        end
-    end
-
-    overlay.data = ass.text
-    overlay:update()
+    glass.draw(overlay, cfg, {
+        d = d, scale = scale,
+        title = "VIDEO MONITOR",
+        subtitle = util.truncate_string(data.filename, 38),
+        sections = sections,
+        anchor = "top-left",
+    })
 end
 
--- Periodic refresh loop while visible
-local function update_loop()
-    if is_enabled then
-        draw_hud()
-    end
-end
-
--- Explicit state setter with inter-script tracking
-local function set_enabled(state)
-    is_enabled = state
-    mp.set_property_native("user-data/video-monitor-active", is_enabled)
-    mp.set_property_native("user-data/media-monitor-active", is_enabled) -- Backwards compatibility
-    if is_enabled then
-        draw_hud()
-        if not poll_timer then
-            poll_timer = mp.add_periodic_timer(cfg.poll_interval, update_loop)
-        end
-    else
-        if poll_timer then
-            poll_timer:kill()
-            poll_timer = nil
-        end
-        overlay:remove()
-    end
-end
-
--- Toggle overlay on/off individually
-local function toggle_stats()
-    set_enabled(not is_enabled)
-end
+-- Enable/disable state, user-data flags, refresh timer and coalesced redraws
+hud = util.monitor({
+    overlay   = overlay,
+    draw      = draw_hud,
+    interval  = cfg.poll_interval,
+    user_data = { "user-data/video-monitor-active", "user-data/media-monitor-active" }, -- 2nd: backwards compatibility
+})
+local set_enabled = hud.set
+local toggle_stats = hud.toggle
 
 -- Master toggle to open/close both overlays synchronously without desync
 local function toggle_both()
@@ -516,19 +338,11 @@ mp.register_script_message("toggle-video-monitor", toggle_stats)
 mp.register_script_message("toggle-media-monitor", toggle_stats)
 mp.register_script_message("toggle-media-stats", toggle_stats)
 
-mp.register_script_message("set-video-monitor", function(val)
-    if val == "yes" or val == "true" or val == "on" or val == "1" then
-        set_enabled(true)
-    elseif val == "no" or val == "false" or val == "off" or val == "0" then
-        set_enabled(false)
-    else
-        toggle_stats()
-    end
-end)
+mp.register_script_message("set-video-monitor", hud.switch)
 
-mp.observe_property("osd-dimensions", "native", draw_hud)
-mp.observe_property("pause", "bool", draw_hud)
-mp.observe_property("vf", "native", draw_hud)
-mp.observe_property("glsl-shaders", "native", draw_hud)
-mp.observe_property("video-out-params", "native", draw_hud)
-mp.observe_property("video-bitrate", "number", draw_hud)
+mp.observe_property("osd-dimensions", "native", hud.request_redraw)
+mp.observe_property("pause", "bool", hud.request_redraw)
+mp.observe_property("vf", "native", hud.request_redraw)
+mp.observe_property("glsl-shaders", "native", hud.request_redraw)
+mp.observe_property("video-out-params", "native", hud.request_redraw)
+mp.observe_property("video-bitrate", "number", hud.request_redraw)
